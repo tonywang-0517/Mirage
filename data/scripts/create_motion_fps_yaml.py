@@ -81,6 +81,7 @@ def main(
                             framerate = motion_data["mocap_frame_rate"]
                         else:
                             raise Exception(f"{file_rename} has no framerate")
+
                 else:
                     motion_data = dict(
                         np.load(open(root + "/" + file, "rb"), allow_pickle=True)

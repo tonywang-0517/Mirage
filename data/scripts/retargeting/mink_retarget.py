@@ -210,9 +210,9 @@ def construct_model(robot_name: str, keypoint_names: Sequence[str]):
             )
 
     if robot_name == "h1":
-        humanoid_mjcf = mjcf.from_path("protomotions/data/assets/mjcf/h1.xml")
+        humanoid_mjcf = mjcf.from_path("proto_vla/model/backbone/protomotions/data/assets/mjcf/h1.xml")
     elif robot_name == "g1":
-        humanoid_mjcf = mjcf.from_path("protomotions/data/assets/mjcf/g1.xml")
+        humanoid_mjcf = mjcf.from_path("proto_vla/model/backbone/protomotions/data/assets/mjcf/g1.xml")
     else:
         raise ValueError(f"Unknown robot name: {robot_name}")
     humanoid_mjcf.worldbody.add(

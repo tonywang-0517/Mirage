@@ -404,6 +404,7 @@ class MotionLib(DeviceDtypeModuleMixin):
         sliced_local_rotation = motion.local_rotation[start_frame:end_frame].clone()
         sliced_root_translation = motion.root_translation[start_frame:end_frame].clone()
 
+
         new_sk_state = SkeletonState.from_rotation_and_root_translation(
             motion.skeleton_tree,
             sliced_local_rotation,
@@ -448,22 +449,22 @@ class MotionLib(DeviceDtypeModuleMixin):
                     f + 1, num_sub_motions, curr_file
                 )
             )
-
             curr_motion = self._load_motion_file(curr_file)
-
-            cur_fps = full_motion_fpses[motion_f]
-            if cur_fps is None:
-                cur_fps = curr_motion.fps
+            # conver amass to isaac 373行 对于 force_retarget已经全部重置到fps30了，这里处理会出错
+            #cur_fps = full_motion_fpses[motion_f]
+            # if cur_fps is None:
+            #     cur_fps = curr_motion.fps
                 
-            if cur_fps > target_frame_rate:
-                # Not necessary, but we downsample the FPS to save memory
-                # do nothing if cur_fps <= target_frame_rate
-                curr_motion = self._fix_motion_fps(
-                    curr_motion,
-                    cur_fps,
-                    target_frame_rate,
-                    self.skeleton_tree,
-                )
+            # if cur_fps > target_frame_rate:
+            #     # Not necessary, but we downsample the FPS to save memory
+            #     # do nothing if cur_fps <= target_frame_rate
+            #     curr_motion = self._fix_motion_fps(
+            #         curr_motion,
+            #         cur_fps,
+            #         target_frame_rate,
+            #         self.skeleton_tree,
+            #     )
+
 
             sub_motion = self._slice_motion_file(curr_motion, motion_timings[f])
             motion_fpses.append(float(sub_motion.fps))

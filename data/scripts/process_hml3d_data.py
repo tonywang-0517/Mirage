@@ -83,6 +83,7 @@ def main(
     motion_fps_path: Path = Path("data/yaml_files/motion_fps_amass.yaml"),
     occlusion_data_path: Path = Path("data/amass/amass_copycat_occlusion_v3.pkl"),
     humanoid_type: str = "smpl",
+    robot_type: str = None,
     dataset: str = "",
     max_length_seconds: Optional[int] = None,  # 90
     min_length_seconds: Optional[float] = 0.5,
@@ -98,7 +99,8 @@ def main(
     total_time = 0
     total_motions = 0
     total_sub_motions = 0
-
+    if robot_type is None:
+        robot_type = humanoid_type
     # load csv file
     df = pd.read_csv(csv_file)
     # load text file and iterate line by line
@@ -138,13 +140,21 @@ def main(
             continue
 
         path_parts = path.split(os.path.sep)
-        path_parts[0] = path_parts[0] + "-" + humanoid_type
+        if robot_type == "g1":
+            path_parts[0] = path_parts[0] + "-g1_retargeted"
+        else:
+            path_parts[0] = path_parts[0] + "-" + humanoid_type
+
         key = os.path.join(*(path_parts))
 
         if humanoid_type == "smplx":
             occlusion_key = ("_".join(path.split("/")))[:-4]
             key = amass_to_amassx(key)
-            path = key.replace("-smplx", "")
+            if robot_type == "g1":
+                path = key.replace("-g1_retargeted", "")
+            else:
+                path = key.replace("-smplx", "")
+
 
             occlusion_key = amass_to_amassx(occlusion_key)
         else:

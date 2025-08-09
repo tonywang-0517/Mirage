@@ -1,0 +1,26 @@
+conda create -n protoVLA python=3.11
+conda activate protoVLA
+pip install --upgrade pip
+pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+pip install isaaclab[isaacsim,all]==2.2.0 --extra-index-url https://pypi.nvidia.com
+isaacsim
+Yes
+pip install -e .
+pip install -e isaac_utils
+pip install -e poselib
+pip install flash-attn --no-build-isolation
+pip install -r requirements.txt
+pip install -e proto_vla/model/backbone/protomotions/
+pip install -e proto_vla/model/backbone/gr00t/
+
+#data preparation quick command/ keep at root path
+#download amass data https://amass.is.tue.mpg.de/download.php I start from CMU SMPLX-N，不要用smplH，只写了smpl和smplx重映射
+#download smpl pkl npz https://smpl-x.is.tue.mpg.de/download.php
+python data/scripts/convert_amass_to_isaac.py data/amass/ --robot-type=g1 --force-retarget --humanoid-type=smplx
+#生成动作的fps
+#注意smplx对应的是motion_fps_amass.yaml，没有写错别改
+python data/scripts/create_motion_fps_yaml.py data/amass/ --output-path=data/yaml_files/ --humanoid-type=smplx --amass-fps-file=data/yaml_files/motion_fps_amass.yaml --output-path=data/yaml_files
+#create yaml
+python data/scripts/process_hml3d_data.py data/yaml_files/train_g1.yaml data/amass/  --humanoid-type=smplx --motion-fps-path=data/yaml_files/motion_fps_amassx.yaml --robot-type=g1
+#package all training data
+python data/scripts/package_motion_lib.py data/yaml_files/train_g1.yaml data/amass/ data/yaml_files/train_g1.pt --humanoid-type=g1

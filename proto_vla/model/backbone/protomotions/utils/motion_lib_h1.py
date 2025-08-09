@@ -81,7 +81,6 @@ class H1_MotionLib(MotionLib):
         ), f"Motion start frame {start_frame} >= motion end frame {end_frame}"
 
         sliced_motion = {}
-
         for key in motion.keys():
             # if is torch.Tensor
             if isinstance(motion[key], torch.Tensor):

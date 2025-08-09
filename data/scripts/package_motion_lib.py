@@ -33,7 +33,7 @@ def main(
         humanoid_type: str = "smpl",
         num_data_splits: int = None,
 ):
-    config_path = "../../protomotions/config/robot"
+    config_path = "../../proto_vla/model/backbone/protomotions/config/robot"
 
     with initialize(version_base=None, config_path=config_path, job_name="test_app"):
         cfg = compose(config_name=humanoid_type)
