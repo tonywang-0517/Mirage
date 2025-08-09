@@ -97,7 +97,7 @@ class Terrain:
 
         if self.config.load_terrain:
             print("Loading a pre-generated terrain")
-            params = torch.load(self.config.terrain_path)
+            params = torch.load(self.config.terrain_path, weights_only=False)
             self.height_field_raw = params["height_field_raw"]
             self.walkable_field_raw = params["walkable_field_raw"]
         else:

@@ -24,3 +24,7 @@ python data/scripts/create_motion_fps_yaml.py data/amass/ --output-path=data/yam
 python data/scripts/process_hml3d_data.py data/yaml_files/train_g1.yaml data/amass/  --humanoid-type=smplx --motion-fps-path=data/yaml_files/motion_fps_amassx.yaml --robot-type=g1
 #package all training data
 python data/scripts/package_motion_lib.py data/yaml_files/train_g1.yaml data/amass/ data/yaml_files/train_g1.pt --humanoid-type=g1
+
+
+#eval motion protomotions隐藏功能
+python proto_vla/model/backbone/protomotions/eval_agent.py +base=[fabric,structure] +exp=deepmimic_mlp +robot=g1 +simulator=isaaclab +checkpoint=null +training_max_steps=1 +motion_file=data/yaml_files/train_g1.pt env.config.sync_motion=True ref_respawn_offset=0 +headless=False ++num_envs=1 +experiment_name=play_motions

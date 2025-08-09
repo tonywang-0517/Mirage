@@ -6,7 +6,7 @@ defaults:
 
 # Env structure
 env:
-  _target_: protomotions.envs.mimic.env.Mimic
+  _target_: proto_vla.model.backbone.protomotions.envs.mimic.env.Mimic
   config:
     state_init: Data
     # Simulation params

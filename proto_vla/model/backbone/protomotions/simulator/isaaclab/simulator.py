@@ -262,9 +262,9 @@ class IsaacLabSimulator(Simulator):
         """
         Set up keyboard callbacks for control using the Se2Keyboard interface.
         """
-        from isaaclab.devices.keyboard.se2_keyboard import Se2Keyboard
-
-        self.keyboard_interface = Se2Keyboard()
+        from isaaclab.devices.keyboard.se2_keyboard import Se2Keyboard, Se2KeyboardCfg
+        kb_cfg = Se2KeyboardCfg()
+        self.keyboard_interface = Se2Keyboard(kb_cfg)
         self.keyboard_interface.add_callback("R", self._requested_reset)
         self.keyboard_interface.add_callback("U", self._update_inference_parameters)
         self.keyboard_interface.add_callback("L", self._toggle_video_record)

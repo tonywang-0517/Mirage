@@ -378,7 +378,7 @@ H1_CFG = ArticulationCfg(
 
 G1_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path="protomotions/data/assets/usd/g1.usd",
+        usd_path="proto_vla/model/backbone/protomotions/data/assets/usd/g1.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

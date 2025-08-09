@@ -173,7 +173,7 @@ class Mimic(PPO):
         # All ranks aggregrate data from all ranks.
         for rank in range(self.fabric.world_size):
             with open(root_dir / f"{rank}_metrics.pt", "rb") as f:
-                other_metrics = torch.load(f, map_location=self.device)
+                other_metrics = torch.load(f, map_location=self.device, weights_only=False)
             other_evaluated_indices = torch.nonzero(other_metrics["evaluated"]).flatten()
             for k in other_metrics.keys():
                 metrics[k][other_evaluated_indices] = other_metrics[k][other_evaluated_indices]

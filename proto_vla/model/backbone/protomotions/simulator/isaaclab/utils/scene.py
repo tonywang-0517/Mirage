@@ -16,6 +16,7 @@ from protomotions.simulator.isaaclab.utils.robots import (
     SMPL_CFG,
     SMPLX_CFG,
     H1_CFG,
+    G1_CFG
 )
 
 

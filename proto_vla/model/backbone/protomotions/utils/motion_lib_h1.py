@@ -50,7 +50,7 @@ class H1_MotionLib(MotionLib):
         )
 
     def _load_motion_file(self, motion_file):
-        motion = EasyDict(torch.load(motion_file))
+        motion = EasyDict(torch.load(motion_file, weights_only=False))
         motion.local_rotation = dof_to_local(motion.dof_pos, self.robot_config.dof_offsets,
                                              self.robot_config.joint_axis, True)
 
