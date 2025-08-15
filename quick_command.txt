@@ -26,3 +26,9 @@ python data/scripts/package_motion_lib.py data/yaml_files/hmd3d_g1.yaml data/ama
 
 isaacgym:
 export LD_LIBRARY_PATH=/environment/miniconda3/envs/isaacgym/lib
+
+robocasa:
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
+
+git rm -r --cached .
+

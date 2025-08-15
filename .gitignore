@@ -78,6 +78,7 @@ site/
 *_dev
 dev/
 # config.json
+output/
 eval_output/
 eval-result/
 hostfile
