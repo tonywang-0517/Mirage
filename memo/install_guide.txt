@@ -36,3 +36,6 @@ python protomotions/protomotions/eval_agent.py +robot=smpl +simulator=isaaclab +
 python protomotions/protomotions/eval_agent.py +robot=smpl +simulator=isaaclab +motion_file=data/motions/smpl_humanoid_walk.npy +checkpoint=data/pretrained_models/masked_mimic/smpl/last.ckpt +terrain=flat
 #aaaa
 python protomotions/protomotions/eval_agent.py +robot=smpl +simulator=isaaclab  +checkpoint=data/pretrained_models/masked_mimic/smpl/last.ckpt +terrain=flat +exp=path_follower_amp_mlp
+
+train
+python mirage/train_agent.py +exp=full_body_tracker/transformer_amp_flat_terrain +robot=g1 +simulator=isaaclab motion_file=data/yaml_files/train_g1_short.pt +experiment_name=full_body_tracker num_envs=1 ++headless=True

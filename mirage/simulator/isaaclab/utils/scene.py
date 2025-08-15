@@ -91,13 +91,14 @@ class SceneCfg(InteractiveSceneCfg):
             )
 
             # ImplicitActuatorCfg IdealPDActuatorCfg
+            # control internal by domain randomisation - random stiffness/damping/ per reset
             actuators = {
                 robot_config.dof_names[i]: IdealPDActuatorCfg(
                     joint_names_expr=[robot_config.dof_names[i]],
                     effort_limit=robot_config.dof_effort_limits[i],
                     velocity_limit=robot_config.dof_vel_limits[i],
-                    stiffness=0,
-                    damping=0,
+                    stiffness=0.0,
+                    damping=0.0,
                     armature=robot_config.dof_armatures[i],
                     friction=robot_config.dof_joint_frictions[i],
                 ) for i in range(len(robot_config.dof_names))

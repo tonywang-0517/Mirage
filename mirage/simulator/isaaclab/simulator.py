@@ -24,7 +24,16 @@ from mirage.simulator.base_simulator.config import (
     SimulatorConfig,
 )
 from mirage.simulator.base_simulator.robot_state import RobotState
+# add domain randomasation
+import isaaclab.envs.mdp as mdp
+from isaaclab.utils.math import sample_uniform
+from isaaclab.managers import SceneEntityCfg, EventTermCfg
+from isaac_utils.maths import torch_rand_float
 
+class EnvWrapper:
+    def __init__(self, scene, sim):
+        self.scene = scene
+        self.sim = sim
 
 class IsaacLabSimulator(Simulator):
     # =====================================================
@@ -75,10 +84,26 @@ class IsaacLabSimulator(Simulator):
         self._simulation_app = simulation_app
         self._sim = SimulationContext(sim_cfg)
         self._sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
+        # add random push
+        self.push_interval_s = torch.randint(5, 10, (self.num_envs,), device=self.device)
+        self.push_robot_counter = torch.zeros(self.num_envs, dtype=torch.int, device=self.device, requires_grad=False)
 
         scene_cfg = self._get_scene_cfg()
 
         self._scene = InteractiveScene(scene_cfg)
+        #add random body mass for each reset
+        material_cfg = EventTermCfg(
+            func=mdp.randomize_rigid_body_material,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+                "static_friction_range": (0.7, 1.3),
+                "dynamic_friction_range": (1.0, 1.0),
+                "restitution_range": (1.0, 1.0),
+                "num_buckets": 250,
+            }
+        )
+        self.env_wrapper = EnvWrapper(self._scene, self._sim)
         if not self.headless:
             self._setup_keyboard()
         print("[INFO]: Setup complete...")
@@ -92,6 +117,59 @@ class IsaacLabSimulator(Simulator):
         if visualization_markers:
             self._build_markers(visualization_markers)
         self._sim.reset()
+        # add randomisation - 质心偏差让机器人可以背东西
+        self._default_coms = self._robot.root_physx_view.get_coms().clone()
+        self._base_com_bias = torch.zeros((self.num_envs, 3), dtype=torch.float, device="cpu")
+
+    def _add_domain_randomization(self, env_ids: Optional[torch.Tensor]) -> None:
+        # 若未指定环境id，则使用默认配置
+        if env_ids is None:
+            return
+        mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids,
+                                      asset_cfg=SceneEntityCfg("robot", joint_names=".*"),
+                                      mass_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
+        #mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=SceneEntityCfg("robot", joint_names=".*"), mass_distribution_params=(0.5, 1.5), operation="scale", distribution="uniform")
+        # 随机重力范化失重
+        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=SceneEntityCfg("robot", joint_names=".*"), friction_distribution_params=tuple([0.01,0.04]), operation="add")
+        self._randomize_body_com(env_ids=env_ids)
+
+        super()._add_domain_randomization(env_ids)
+
+    def _randomize_body_com(self, env_ids: torch.Tensor | None):
+        if env_ids is None:
+            return
+
+        # 获取当前 coms 张量，并确保 env_ids 在相同设备上
+        coms = self._robot.root_physx_view.get_coms()
+        env_ids = env_ids.to(coms.device)
+        # 找到 torso_link 在 body_names 中的索引
+        torso_id = self._robot.body_names.index('torso_link')
+        env_ids = env_ids.cpu()
+        # 重置指定环境中 torso_link 的质心为默认值
+        coms[env_ids[:, None], torso_id] = self._default_coms[env_ids[:, None], torso_id].clone()
+        # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
+        # low = torch.tensor([-0.1, -0.1, -0.1], device=coms.device)
+        # high = torch.tensor([0.1, 0.1, 0.1], device=coms.device)
+        # 对 _base_com_bias 进行均匀分布采样，形状为 (num_selected_envs, num_axes)
+        self._base_com_bias[env_ids] = sample_uniform(
+            -0.05, 0.05,
+            (env_ids.shape[0], self._base_com_bias.shape[1]),
+            device=coms.device
+        )
+        # 为 torso_link 的前3个坐标添加随机偏移
+        coms[env_ids[:, None], torso_id, :3] += self._base_com_bias[env_ids[:, None], :]
+        # 将修改后的 coms 更新回物理仿真视图中
+        self._robot.root_physx_view.set_coms(coms, env_ids)
+
+    def _random_push_robot(self):
+        push_robot_env_ids = (self.push_robot_counter == (self.push_interval_s / self.dt).int()).nonzero(as_tuple=False).flatten()
+        self.push_robot_counter[:] += 1
+        if len(push_robot_env_ids) == 0:
+            return
+        self.push_robot_counter[push_robot_env_ids] = 0
+        self.push_interval_s[push_robot_env_ids] = torch.randint(5, 10, (len(push_robot_env_ids),), device=self.device, requires_grad=False)
+        self._push_robot(push_robot_env_ids)
+
 
     def _get_scene_cfg(self) -> SceneCfg:
         """
@@ -271,7 +349,7 @@ class IsaacLabSimulator(Simulator):
         self.keyboard_interface.add_callback(";", self._cancel_video_record)
         self.keyboard_interface.add_callback("Q", self.close)
         self.keyboard_interface.add_callback("O", self._toggle_camera_target)
-        self.keyboard_interface.add_callback("J", self._push_robot)
+        self.keyboard_interface.add_callback("J", self._push_robot_eval)
 
     # =====================================================
     # Group 2: Environment Setup & Configuration
@@ -347,6 +425,8 @@ class IsaacLabSimulator(Simulator):
         Raises:
             NotImplementedError: Not supported yet.
         """
+        #common_torques = self._compute_torques(self._common_actions)
+        # add domain randomisation for action delay
         common_torques = self._compute_torques(self._common_actions)
         isaaclab_torques = common_torques[:, self.data_conversion.dof_convert_to_sim]
         self._robot.set_joint_effort_target(isaaclab_torques, joint_ids=None)
@@ -617,12 +697,22 @@ class IsaacLabSimulator(Simulator):
     # Group 5: Control & Computation Methods
     # =====================================================
 
-    def _push_robot(self):
-        vel_w = self._robot.data.root_vel_w
-        self._robot.write_root_velocity_to_sim(
-            vel_w + torch.ones_like(vel_w),
-            env_ids=torch.arange(self.num_envs, device=self.device),
-        )
+    def _push_robot_eval(self):
+        env_ids = torch.tensor([0], device=self.device)
+        self._push_robot(env_ids)
+
+    def _push_robot(self,env_ids: Optional[torch.Tensor] = None) -> None:
+        if env_ids is None:
+            return
+        # self._robot.write_root_velocity_to_sim(
+        #     vel_w + torch.ones_like(vel_w),
+        #     env_ids=torch.arange(self.num_envs, device=self.device),
+        # )
+        print('push_robot')
+        vel_w = self._robot.data.root_vel_w[env_ids].clone()
+        force = torch_rand_float(-1.0, 1.0, vel_w.shape, device=str(self.device))
+        vel_w += force
+        self._robot.write_root_velocity_to_sim(vel_w, env_ids=env_ids)
 
     # =====================================================
     # Group 6: Rendering & Visualization

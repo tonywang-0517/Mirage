@@ -81,5 +81,5 @@ class MotionManager(BaseComponent):
         return state_dict
 
     def load_state_dict(self, state_dict):
-        if "motion_weights" in state_dict:
+        if "motion_weights" in state_dict and self.motion_weights.shape == state_dict["motion_weights"].shape:
             self.motion_weights[:] = state_dict["motion_weights"].to(self.motion_weights.device)

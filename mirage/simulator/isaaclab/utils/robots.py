@@ -390,10 +390,16 @@ G1_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False,
+            enabled_self_collisions=True,
+            fix_root_link=False,
             solver_position_iteration_count=4,
             solver_velocity_iteration_count=4,
         ),
+        #control stiffness/damping internal by randomisation
+        joint_drive_props=sim_utils.JointDrivePropertiesCfg(
+            stiffness=None,  # N·m/rad（旋转关节）；N/m（直线关节）
+            damping=None,  # N·m·s/rad（旋转）；N·s/m（直线）
+        )
     ),
     soft_joint_pos_limit_factor=0.9,
 )

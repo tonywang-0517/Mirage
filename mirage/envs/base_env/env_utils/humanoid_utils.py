@@ -87,7 +87,9 @@ def build_pd_action_offset_scale(
 
             # extend the action range to be a bit beyond the joint limits so that the motors
             # don't lose their strength as they approach the joint limits
-            curr_scale = 0.7 * (curr_high - curr_low)
+            #curr_scale = 0.7 * (curr_high - curr_low)
+            # seems 0.7 cant achieve some hard motion due to I add domain randomisation, can see 0.8 can learn more hard motion at least for isaaclab
+            curr_scale = 0.8 * (curr_high - curr_low)
             curr_low = curr_mid - curr_scale
             curr_high = curr_mid + curr_scale
 

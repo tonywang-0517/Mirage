@@ -126,4 +126,5 @@ output/
 checkpoints/
 data/
 .venv/
+results/
 

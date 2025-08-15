@@ -594,7 +594,7 @@ class PPO:
         if len(env_log_dict) > 0:
             log_dict.update(env_log_dict)
         log_dict.update(training_log_dict)
-        self.fabric.log_dict(log_dict)
+        self.fabric.log_dict(log_dict, step=self.step_count)
 
     # -----------------------------
     # Helper Functions
