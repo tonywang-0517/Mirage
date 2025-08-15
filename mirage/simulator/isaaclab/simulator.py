@@ -91,18 +91,7 @@ class IsaacLabSimulator(Simulator):
         scene_cfg = self._get_scene_cfg()
 
         self._scene = InteractiveScene(scene_cfg)
-        #add random body mass for each reset
-        material_cfg = EventTermCfg(
-            func=mdp.randomize_rigid_body_material,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-                "static_friction_range": (0.7, 1.3),
-                "dynamic_friction_range": (1.0, 1.0),
-                "restitution_range": (1.0, 1.0),
-                "num_buckets": 250,
-            }
-        )
+        self.asset_cfg = SceneEntityCfg("robot", joint_names=".*")
         self.env_wrapper = EnvWrapper(self._scene, self._sim)
         if not self.headless:
             self._setup_keyboard()
@@ -117,6 +106,7 @@ class IsaacLabSimulator(Simulator):
         if visualization_markers:
             self._build_markers(visualization_markers)
         self._sim.reset()
+        self.asset_cfg.resolve(self._scene)
         # add randomisation - 质心偏差让机器人可以背东西
         self._default_coms = self._robot.root_physx_view.get_coms().clone()
         self._base_com_bias = torch.zeros((self.num_envs, 3), dtype=torch.float, device="cpu")
@@ -126,13 +116,10 @@ class IsaacLabSimulator(Simulator):
         if env_ids is None:
             return
         mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids,
-                                      asset_cfg=SceneEntityCfg("robot", joint_names=".*"),
+                                      asset_cfg=self.asset_cfg,
                                       mass_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
-        #mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=SceneEntityCfg("robot", joint_names=".*"), mass_distribution_params=(0.5, 1.5), operation="scale", distribution="uniform")
-        # 随机重力范化失重
-        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=SceneEntityCfg("robot", joint_names=".*"), friction_distribution_params=tuple([0.01,0.04]), operation="add")
+        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.01,0.04), operation="add")
         self._randomize_body_com(env_ids=env_ids)
-
         super()._add_domain_randomization(env_ids)
 
     def _randomize_body_com(self, env_ids: torch.Tensor | None):

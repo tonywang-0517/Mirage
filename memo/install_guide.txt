@@ -1,14 +1,13 @@
-conda create -n mirage python=3.11
+conda create -n mirage python=3.10
 conda activate mirage
 pip install --upgrade pip
 pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
-pip install isaaclab[isaacsim,all]==2.2.0 --extra-index-url https://pypi.nvidia.com
+pip install isaaclab[isaacsim,all]==2.1.0 --extra-index-url https://pypi.nvidia.com
 isaacsim
 Yes
 pip install -e .
 pip install -e isaac_utils
 pip install -e poselib
-pip install -e protomotions
 pip install -e gr00t
 pip install flash-attn --no-build-isolation
 pip install -r requirements.txt
