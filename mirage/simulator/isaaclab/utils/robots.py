@@ -3,7 +3,7 @@ from isaaclab.actuators import ImplicitActuatorCfg, DelayedPDActuatorCfg
 from isaaclab.assets import ArticulationCfg
 
 from mirage.global_config import Config
-max_delay = 2 if Config.control_delay else 0 # physics time steps (max: 120hz 8.33*2=16.0ms)
+max_delay = 3 if Config.control_delay else 0 # physics time steps (max: 200hz 5*3=15.0ms)
 
 
 SMPLX_CFG = ArticulationCfg(

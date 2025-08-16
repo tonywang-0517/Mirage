@@ -82,6 +82,7 @@ class Simulator(ABC):
         self._kp_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._kd_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._rfi_lim_scale = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.rfi_lim = 0.1
     # -------------------------
     # 🌄 Group 2: Environment Setup & Configuration
     # -------------------------
@@ -240,8 +241,8 @@ class Simulator(ABC):
             self._randomize_actuator_gains(env_ids)
 
     def _randomize_actuator_gains(self, env_ids) -> None:
-        self._kp_scale[env_ids] = torch_rand_float(0.75,1.5, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
-        self._kd_scale[env_ids] = torch_rand_float(0.3,3.0, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kp_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kd_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
 
     def _randomize_rfi_lim(self, env_ids) -> None:
         self._rfi_lim_scale[env_ids] = torch_rand_float(0.5, 1.5, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
@@ -643,7 +644,7 @@ class Simulator(ABC):
             raise NameError(f"Unknown controller type: {self.control_type}")
         #add radom noise for each step - Random Force Injection
         if Config.randomize_rfi_lim:
-            noise = torch.empty_like(torques).uniform_(-0.1, 0.1) * self._rfi_lim_scale * self._torque_limits_common[self.data_conversion.dof_convert_to_sim]
+            noise = (torch.rand_like(torques)*2.-1.) * self.rfi_lim * self._rfi_lim_scale * self._torque_limits_common[self.data_conversion.dof_convert_to_sim]
             torques += noise
 
         return torch.clip(torques, -self._torque_limits_common, self._torque_limits_common)

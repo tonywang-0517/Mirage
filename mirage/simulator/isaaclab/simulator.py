@@ -115,17 +115,17 @@ class IsaacLabSimulator(Simulator):
             return
 
         if Config.randomize_body_mass:
-            mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, mass_distribution_params=(0.9, 3.0), operation="scale", distribution="uniform")
+            mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, mass_distribution_params=(0.9, 1.2), operation="scale", distribution="uniform")
         if Config.randomize_joint_parameters:
-            mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.5), armature_distribution_params=(0.9, 1.1), operation="scale", distribution="uniform")
+            mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.25), armature_distribution_params=(0.95, 1.05), operation="scale", distribution="gaussian")
         if Config.randomize_physics_scene_gravity:
-            mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, 0.0], [0.0, 0.0, 0.4]), operation="add", distribution="gaussian")
+            mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, -0.1], [0.0, 0.0, 0.1]), operation="add", distribution="gaussian")
         if Config.randomize_body_com:
             #isaaclab 2.2支持，可惜有bug降级到2.1自己实现了
             #mdp.randomize_rigid_body_com(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, com_range={"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)})
             self._randomize_body_com(env_ids=env_ids)
         super()._add_domain_randomization(env_ids)
-        print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.9-2.0) joint_friction(0.8-1.2) armature(0.5-2.0) body_com actuator_gains ctrl_delay torque_injection noise')
+        #print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.9-2.0) joint_friction(0.8-1.2) armature(0.5-2.0) body_com actuator_gains ctrl_delay torque_injection noise')
 
     def _randomize_body_com(self, env_ids: torch.Tensor | None):
         if env_ids is None:
@@ -686,7 +686,7 @@ class IsaacLabSimulator(Simulator):
         if env_ids is None:
             return
         vel_w = self._robot.data.root_vel_w[env_ids].clone()
-        force = torch_rand_float(-0.5, 0.5, vel_w.shape, device=str(self.device))
+        force = torch_rand_float(-0.25, 0.25, vel_w.shape, device=str(self.device))
         vel_w += force
         self._robot.write_root_velocity_to_sim(vel_w, env_ids=env_ids)
         print('random push_robot', env_ids)

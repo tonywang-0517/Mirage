@@ -45,11 +45,11 @@ python mirage/train_agent.py +exp=full_body_tracker/transformer_amp_flat_terrain
 train walk
 python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab motion_file=data/motions/smpl_humanoid_walk.npy +experiment_name=full_body_tracker ++headless=True
 
-python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker_g1 ++headless=True
+python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab motion_file=data/yaml_files/train_g1_short.pt +experiment_name=full_body_tracker_g1_noDR ++headless=True
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=False +checkpoint=results/full_body_tracker/last.ckpt
 eval walk
-python mirage/eval_agent.py +exp=full_body_tracker/mlp_single_motion_flat_terrain +robot=g1 +simulator=isaaclab +motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker  ++headless=False +checkpoint=results/full_body_tracker/last.ckpt +terrain=flat ++num_envs=1
+python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab +motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker  ++headless=False +checkpoint=results/full_body_tracker_g1/last.ckpt ++num_envs=1
 
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=false +checkpoint=results/full_body_tracker/last.ckpt ++num_envs=1
