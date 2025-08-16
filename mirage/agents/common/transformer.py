@@ -7,7 +7,7 @@ import numpy as np
 from mirage.utils.model_utils import get_activation_func
 
 from hydra.utils import instantiate
-
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -172,8 +172,8 @@ class Transformer(nn.Module):
 
         cur_mask = cat_mask.unsqueeze(1).expand(-1, cat_obs.shape[0], -1)
         cur_mask = torch.repeat_interleave(cur_mask, self.config.num_heads, dim=0)
-
-        output = self.seqTransEncoder(cat_obs, mask=cur_mask)[0]  # [bs, d]
+        with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+            output = self.seqTransEncoder(cat_obs, mask=None if self.mask_keys[model_name] is None else cur_mask)[0]
 
         return output
 

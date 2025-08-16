@@ -12,6 +12,7 @@ from mirage.envs.base_env.env_utils.humanoid_utils import build_pd_action_offset
 from mirage.simulator.base_simulator.robot_state import RobotState, DataConversion
 from mirage.simulator.base_simulator.config import MarkerState, VisualizationMarker, ControlType, SimulatorConfig, SimBodyOrdering
 from isaac_utils.maths import torch_rand_float
+from mirage.global_config import Config
 
 class Simulator(ABC):
     # -------------------------
@@ -74,17 +75,13 @@ class Simulator(ABC):
             "output/renderings", f"{self.config.experiment_name}-%s"
         )
         #add domain randomisation
-        #self._actions = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        #self._actions_after_delay = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._init_domain_rand_buffers()
 
     def _init_domain_rand_buffers(self):
         ######################################### DR related tensors #########################################
-        self._action_queue = torch.zeros(self.num_envs, 2, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self._action_delay_idx = torch.randint(0, 2, (self.num_envs,), device=self.device, requires_grad=False)
         self._kp_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._kd_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self._rfi_lim_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self._rfi_lim_scale = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
     # -------------------------
     # 🌄 Group 2: Environment Setup & Configuration
     # -------------------------
@@ -230,35 +227,25 @@ class Simulator(ABC):
         self.user_requested_reset = False
         common_actions = torch.clamp(common_actions * self.robot_config.control.action_scale, -self.robot_config.control.clamp_actions, self.robot_config.control.clamp_actions)
         self._common_actions = common_actions.to(self.device)
-        #add domain randomisation
-        self._action_queue = torch.roll(self._action_queue, shifts=1, dims=1)
-        self._action_queue[:, 0] = self._common_actions
-        self._actions_after_delay = self._action_queue[torch.arange(self.num_envs), self._action_delay_idx]
-
         self._physics_step()
-        self._random_push_robot()
+        if Config.random_push_robot:
+            self._random_push_robot()
         self._update_markers(markers_state)
         self.render()
 
-    # add domain randomisation
-    def _random_push_robot(self):
-        return
-
     def _add_domain_randomization(self, env_ids: Optional[torch.Tensor]) -> None:
-        self._randomize_actuator_gains(env_ids)
-        self._randomize_rfi_lim(env_ids)
-        self._randomize_ctrl_delay(env_ids)
+        if Config.randomize_rfi_lim:
+            self._randomize_rfi_lim(env_ids)
+        if Config.randomize_actuator_gains:
+            self._randomize_actuator_gains(env_ids)
 
     def _randomize_actuator_gains(self, env_ids) -> None:
-        self._kp_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
-        self._kd_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kp_scale[env_ids] = torch_rand_float(0.75,1.5, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kd_scale[env_ids] = torch_rand_float(0.3,3.0, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
 
     def _randomize_rfi_lim(self, env_ids) -> None:
         self._rfi_lim_scale[env_ids] = torch_rand_float(0.5, 1.5, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
 
-    def _randomize_ctrl_delay(self, env_ids) -> None:
-        self._action_queue[env_ids] *= 0.
-        self._action_delay_idx[env_ids] = torch.randint(0, 2, (len(env_ids),), device=self.device, requires_grad=False)
 
     def _update_simulator_tensors_after_reset(self, env_ids: Optional[torch.Tensor]) -> None:
         """
@@ -281,6 +268,7 @@ class Simulator(ABC):
         """
         self.set_env_state(new_states, env_ids)
         self._add_domain_randomization(env_ids)
+
         self._update_simulator_tensors_after_reset(env_ids)
 
     def set_env_state(self, new_states: Dict[str, torch.Tensor], env_ids: Optional[torch.Tensor]) -> None:
@@ -640,7 +628,7 @@ class Simulator(ABC):
             #add domain randomsation - randomize_actuator_gains for each reset
             torques: torch.Tensor = (
                 self._common_p_gains * self._kp_scale * (pd_tar - common_dof_state.dof_pos)
-                -self._common_d_gains * common_dof_state.dof_vel * self._kd_scale
+                -self._common_d_gains * self._kd_scale * common_dof_state.dof_vel
             )
 
         elif self.control_type == ControlType.VELOCITY:
@@ -654,8 +642,9 @@ class Simulator(ABC):
         else:
             raise NameError(f"Unknown controller type: {self.control_type}")
         #add radom noise for each step - Random Force Injection
-        noise = torch.empty_like(torques).uniform_(-0.1, 0.1) * self._rfi_lim_scale * self._torque_limits_common[self.data_conversion.dof_convert_to_sim]
-        torques += noise
+        if Config.randomize_rfi_lim:
+            noise = torch.empty_like(torques).uniform_(-0.1, 0.1) * self._rfi_lim_scale * self._torque_limits_common[self.data_conversion.dof_convert_to_sim]
+            torques += noise
 
         return torch.clip(torques, -self._torque_limits_common, self._torque_limits_common)
 

@@ -5,7 +5,7 @@ from isaaclab.scene import InteractiveScene
 from isaaclab.sim import SimulationContext, PhysxCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-
+import isaaclab.utils.math as math_utils
 from easydict import EasyDict
 from mirage.envs.base_env.env_utils.terrains.terrain import Terrain
 from mirage.utils.scene_lib import SceneLib
@@ -29,6 +29,7 @@ import isaaclab.envs.mdp as mdp
 from isaaclab.utils.math import sample_uniform
 from isaaclab.managers import SceneEntityCfg, EventTermCfg
 from isaac_utils.maths import torch_rand_float
+from mirage.global_config import Config
 
 class EnvWrapper:
     def __init__(self, scene, sim):
@@ -107,42 +108,40 @@ class IsaacLabSimulator(Simulator):
             self._build_markers(visualization_markers)
         self._sim.reset()
         self.asset_cfg.resolve(self._scene)
-        # add randomisation
-        self._default_coms = self._robot.root_physx_view.get_coms().clone()
-        self._base_com_bias = torch.zeros((self.num_envs, 3), dtype=torch.float, device="cpu")
-        self.torso_link_index = self._robot.body_names.index('Torso')
 
     def _add_domain_randomization(self, env_ids: Optional[torch.Tensor]) -> None:
         # 若未指定环境id，则使用默认配置
         if env_ids is None:
             return
-        mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids,
-                                      asset_cfg=self.asset_cfg,
-                                      mass_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
-        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.8, 1.2), armature_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
-        self._randomize_body_com(env_ids=env_ids)
-        super()._add_domain_randomization(env_ids)
 
-        print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.8-1.2) joint_friction(0.8-1.2) armature(0.8-1.2) body_com actuator_gains ctrl_delay torque_injection noise')
+        if Config.randomize_body_mass:
+            mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, mass_distribution_params=(0.9, 3.0), operation="scale", distribution="uniform")
+        if Config.randomize_joint_parameters:
+            mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.5), armature_distribution_params=(0.9, 1.1), operation="scale", distribution="uniform")
+        if Config.randomize_physics_scene_gravity:
+            mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, 0.0], [0.0, 0.0, 0.4]), operation="add", distribution="gaussian")
+        if Config.randomize_body_com:
+            #isaaclab 2.2支持，可惜有bug降级到2.1自己实现了
+            #mdp.randomize_rigid_body_com(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, com_range={"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)})
+            self._randomize_body_com(env_ids=env_ids)
+        super()._add_domain_randomization(env_ids)
+        print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.9-2.0) joint_friction(0.8-1.2) armature(0.5-2.0) body_com actuator_gains ctrl_delay torque_injection noise')
 
     def _randomize_body_com(self, env_ids: torch.Tensor | None):
         if env_ids is None:
             return
-        coms = self._robot.root_physx_view.get_coms()
-        env_ids = env_ids.to(coms.device)
+        # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
+        com_range = {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)}
         # 找到 torso_link 在 body_names 中的索引
         env_ids = env_ids.cpu()
-        # 重置指定环境中 torso_link 的质心为默认值
-        coms[env_ids[:, None], self.torso_link_index] = self._default_coms[env_ids[:, None], self.torso_link_index].clone()
-        # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
-        self._base_com_bias[env_ids] = sample_uniform(
-            -0.05, 0.05,
-            (env_ids.shape[0], self._base_com_bias.shape[1]),
-            device=coms.device
-        )
-        # 为 torso_link 的前3个坐标添加随机偏移
-        coms[env_ids[:, None], self.torso_link_index, :3] += self._base_com_bias[env_ids[:, None], :]
-        # 将修改后的 coms 更新回物理仿真视图中, 5.0.0好像改方式了
+        # sample random CoM values
+        range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+        ranges = torch.tensor(range_list, device="cpu")
+        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device="cpu").unsqueeze(1)
+        # get the current com of the bodies (num_assets, num_bodies)
+        coms = self._robot.root_physx_view.get_coms().clone()
+        # Randomize the com in range
+        coms[:, self.asset_cfg.body_ids, :3] += rand_samples
         self._robot.root_physx_view.set_coms(coms, env_ids)
 
     def _random_push_robot(self):
@@ -398,8 +397,7 @@ class IsaacLabSimulator(Simulator):
         """
         Apply PD control by converting actions into PD targets and updating joint targets accordingly.
         """
-        #common_pd_tar = self._action_to_pd_targets(self._common_actions)
-        common_pd_tar = self._action_to_pd_targets(self._actions_after_delay)
+        common_pd_tar = self._action_to_pd_targets(self._common_actions)
         isaaclab_pd_tar = common_pd_tar[:, self.data_conversion.dof_convert_to_sim]
         self._robot.set_joint_position_target(isaaclab_pd_tar, joint_ids=None)
 
@@ -410,9 +408,7 @@ class IsaacLabSimulator(Simulator):
         Raises:
             NotImplementedError: Not supported yet.
         """
-        #common_torques = self._compute_torques(self._common_actions)
-        # add domain randomisation for action delay
-        common_torques = self._compute_torques(self._actions_after_delay)
+        common_torques = self._compute_torques(self._common_actions)
         isaaclab_torques = common_torques[:, self.data_conversion.dof_convert_to_sim]
         self._robot.set_joint_effort_target(isaaclab_torques, joint_ids=None)
 
@@ -690,7 +686,7 @@ class IsaacLabSimulator(Simulator):
         if env_ids is None:
             return
         vel_w = self._robot.data.root_vel_w[env_ids].clone()
-        force = torch_rand_float(-1.0, 1.0, vel_w.shape, device=str(self.device))
+        force = torch_rand_float(-0.5, 0.5, vel_w.shape, device=str(self.device))
         vel_w += force
         self._robot.write_root_velocity_to_sim(vel_w, env_ids=env_ids)
         print('random push_robot', env_ids)

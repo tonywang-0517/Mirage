@@ -2,7 +2,7 @@ from mirage.envs.base_env.env_utils.terrains.flat_terrain import FlatTerrain
 from mirage.simulator.base_simulator.config import RobotConfig
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.actuators import IdealPDActuatorCfg
+from isaaclab.actuators import IdealPDActuatorCfg, DelayedPDActuatorCfg
 from isaaclab.utils import configclass
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
@@ -18,6 +18,8 @@ from mirage.simulator.isaaclab.utils.robots import (
     H1_CFG,
     G1_CFG
 )
+from mirage.global_config import Config
+max_delay = 2 if Config.control_delay else 0
 
 
 @configclass
@@ -90,10 +92,10 @@ class SceneCfg(InteractiveSceneCfg):
                 joint_vel={".*": 0.0},
             )
 
-            # ImplicitActuatorCfg IdealPDActuatorCfg
-            # control internal by domain randomisation - random stiffness/damping/ per reset
+            # ImplicitActuatorCfg IdealPDActuatorCfg DelayedPDActuatorCfg
+            # control internal by domain randomisation - random stiffness/damping/ per reset and add control delay
             actuators = {
-                robot_config.dof_names[i]: IdealPDActuatorCfg(
+                robot_config.dof_names[i]: DelayedPDActuatorCfg(
                     joint_names_expr=[robot_config.dof_names[i]],
                     effort_limit=robot_config.dof_effort_limits[i],
                     velocity_limit=robot_config.dof_vel_limits[i],
@@ -101,6 +103,8 @@ class SceneCfg(InteractiveSceneCfg):
                     damping=0.0,
                     armature=robot_config.dof_armatures[i],
                     friction=robot_config.dof_joint_frictions[i],
+                    min_delay=0,
+                    max_delay=max_delay,
                 ) for i in range(len(robot_config.dof_names))
             }
 

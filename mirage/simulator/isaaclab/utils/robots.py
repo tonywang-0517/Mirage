@@ -1,6 +1,9 @@
 import isaaclab.sim as sim_utils
-from isaaclab.actuators import ImplicitActuatorCfg
+from isaaclab.actuators import ImplicitActuatorCfg, DelayedPDActuatorCfg
 from isaaclab.assets import ArticulationCfg
+
+from mirage.global_config import Config
+max_delay = 2 if Config.control_delay else 0 # physics time steps (max: 120hz 8.33*2=16.0ms)
 
 
 SMPLX_CFG = ArticulationCfg(
@@ -32,7 +35,9 @@ SMPLX_CFG = ArticulationCfg(
     ),
     soft_joint_pos_limit_factor=0.9,
     actuators={
-        "legs": ImplicitActuatorCfg(
+        "legs": DelayedPDActuatorCfg(
+            min_delay=0,
+            max_delay=max_delay,
             joint_names_expr=[
                 "L_Hip_.",
                 "R_Hip_.",
@@ -66,7 +71,9 @@ SMPLX_CFG = ArticulationCfg(
                 "R_Toe_.": 50,
             },
         ),
-        "torso": ImplicitActuatorCfg(
+        "torso": DelayedPDActuatorCfg(
+            min_delay=0,
+            max_delay=max_delay,
             joint_names_expr=[
                 "Torso_.",
                 "Spine_.",
@@ -97,7 +104,9 @@ SMPLX_CFG = ArticulationCfg(
                 "R_Thorax_.": 50,
             },
         ),
-        "arms": ImplicitActuatorCfg(
+        "arms": DelayedPDActuatorCfg(
+            min_delay=0,
+            max_delay=max_delay,
             joint_names_expr=[
                 "L_Shoulder_.",
                 "R_Shoulder_.",
@@ -125,7 +134,9 @@ SMPLX_CFG = ArticulationCfg(
                 "R_Wrist_.": 30,
             },
         ),
-        "hands": ImplicitActuatorCfg(
+        "hands": DelayedPDActuatorCfg(
+            min_delay=0,
+            max_delay=max_delay,
             joint_names_expr=[
                 "L_Index1_.",
                 "L_Index2_.",
