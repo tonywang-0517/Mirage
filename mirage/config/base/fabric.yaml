@@ -3,7 +3,7 @@
 fabric:
   _target_: lightning.fabric.Fabric
   _convert_: all
-  accelerator: gpu
+  accelerator: cuda
   devices: ${ngpu}
   num_nodes: ${nodes}
   strategy:
@@ -18,7 +18,7 @@ fabric:
 ngpu: 1
 nodes: 1
 torch_deterministic: False
-amp_precision: 32-true
+amp_precision: bf16-mixed
 
 eval_overrides:
   ngpu: 1

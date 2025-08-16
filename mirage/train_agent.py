@@ -29,7 +29,6 @@ for arg in sys.argv:
 
             simulator = "isaaclab"
 
-import wandb  # noqa: E402
 from lightning.pytorch.loggers import WandbLogger  # noqa: E402
 import torch  # noqa: E402
 from lightning.fabric import Fabric  # noqa: E402
@@ -100,19 +99,7 @@ def main(config: OmegaConf):
     agent.fabric.strategy.barrier()
     agent.load(config.checkpoint)
 
-    # find out wandb id and save to config.yaml if 1st run:
-    # wandb on rank 0
     if fabric.global_rank == 0 and not checkpoint_config_path.exists():
-        if "wandb" in config:
-            for logger in fabric.loggers:
-                if isinstance(logger, WandbLogger):
-                    logger.log_hyperparams(OmegaConf.to_container(config, resolve=True))
-
-            # saving config with wandb id for next resumed run
-            wandb_id = wandb.run.id
-            log.info(f"wandb_id found {wandb_id}")
-            unresolved_conf["wandb"]["wandb_id"] = wandb_id
-
         # only save before 1st run.
         # note, we save unresolved config for easier inference time logic
         log.info(f"Saving config file to {save_dir}")

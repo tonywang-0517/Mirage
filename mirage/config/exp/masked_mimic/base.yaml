@@ -22,6 +22,6 @@ env:
     masked_mimic:
       enabled: true
       masked_mimic_masking:
-        motion_text_embeddings_visible_prob: 0.5
+        motion_text_embeddings_visible_prob: 0
     humanoid_obs:
       num_historical_steps: 120

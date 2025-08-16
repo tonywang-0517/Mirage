@@ -411,7 +411,8 @@ class PPO:
                     raise ValueError("NaN in training")
 
             # Update actor
-            actor_loss, actor_loss_dict = self.actor_step(batch_dict)
+            with self.fabric.autocast():
+                actor_loss, actor_loss_dict = self.actor_step(batch_dict)
             iter_log_dict.update(actor_loss_dict)
             self.actor_optimizer.zero_grad(set_to_none=True)
             self.fabric.backward(actor_loss)

@@ -107,9 +107,10 @@ class IsaacLabSimulator(Simulator):
             self._build_markers(visualization_markers)
         self._sim.reset()
         self.asset_cfg.resolve(self._scene)
-        # add randomisation - 质心偏差让机器人可以背东西
+        # add randomisation
         self._default_coms = self._robot.root_physx_view.get_coms().clone()
         self._base_com_bias = torch.zeros((self.num_envs, 3), dtype=torch.float, device="cpu")
+        self.torso_link_index = self._robot.body_names.index('Torso')
 
     def _add_domain_randomization(self, env_ids: Optional[torch.Tensor]) -> None:
         # 若未指定环境id，则使用默认配置
@@ -118,34 +119,30 @@ class IsaacLabSimulator(Simulator):
         mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids,
                                       asset_cfg=self.asset_cfg,
                                       mass_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
-        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.01,0.04), operation="add")
+        mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.8, 1.2), armature_distribution_params=(0.8, 1.2), operation="scale", distribution="uniform")
         self._randomize_body_com(env_ids=env_ids)
         super()._add_domain_randomization(env_ids)
+
+        print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.8-1.2) joint_friction(0.8-1.2) armature(0.8-1.2) body_com actuator_gains ctrl_delay torque_injection noise')
 
     def _randomize_body_com(self, env_ids: torch.Tensor | None):
         if env_ids is None:
             return
-
-        # 获取当前 coms 张量，并确保 env_ids 在相同设备上
         coms = self._robot.root_physx_view.get_coms()
         env_ids = env_ids.to(coms.device)
         # 找到 torso_link 在 body_names 中的索引
-        torso_id = self._robot.body_names.index('torso_link')
         env_ids = env_ids.cpu()
         # 重置指定环境中 torso_link 的质心为默认值
-        coms[env_ids[:, None], torso_id] = self._default_coms[env_ids[:, None], torso_id].clone()
+        coms[env_ids[:, None], self.torso_link_index] = self._default_coms[env_ids[:, None], self.torso_link_index].clone()
         # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
-        # low = torch.tensor([-0.1, -0.1, -0.1], device=coms.device)
-        # high = torch.tensor([0.1, 0.1, 0.1], device=coms.device)
-        # 对 _base_com_bias 进行均匀分布采样，形状为 (num_selected_envs, num_axes)
         self._base_com_bias[env_ids] = sample_uniform(
             -0.05, 0.05,
             (env_ids.shape[0], self._base_com_bias.shape[1]),
             device=coms.device
         )
         # 为 torso_link 的前3个坐标添加随机偏移
-        coms[env_ids[:, None], torso_id, :3] += self._base_com_bias[env_ids[:, None], :]
-        # 将修改后的 coms 更新回物理仿真视图中
+        coms[env_ids[:, None], self.torso_link_index, :3] += self._base_com_bias[env_ids[:, None], :]
+        # 将修改后的 coms 更新回物理仿真视图中, 5.0.0好像改方式了
         self._robot.root_physx_view.set_coms(coms, env_ids)
 
     def _random_push_robot(self):
@@ -327,9 +324,9 @@ class IsaacLabSimulator(Simulator):
         """
         Set up keyboard callbacks for control using the Se2Keyboard interface.
         """
-        from isaaclab.devices.keyboard.se2_keyboard import Se2Keyboard, Se2KeyboardCfg
-        kb_cfg = Se2KeyboardCfg()
-        self.keyboard_interface = Se2Keyboard(kb_cfg)
+        from isaaclab.devices.keyboard.se2_keyboard import Se2Keyboard
+
+        self.keyboard_interface = Se2Keyboard()
         self.keyboard_interface.add_callback("R", self._requested_reset)
         self.keyboard_interface.add_callback("U", self._update_inference_parameters)
         self.keyboard_interface.add_callback("L", self._toggle_video_record)
@@ -401,7 +398,8 @@ class IsaacLabSimulator(Simulator):
         """
         Apply PD control by converting actions into PD targets and updating joint targets accordingly.
         """
-        common_pd_tar = self._action_to_pd_targets(self._common_actions)
+        #common_pd_tar = self._action_to_pd_targets(self._common_actions)
+        common_pd_tar = self._action_to_pd_targets(self._actions_after_delay)
         isaaclab_pd_tar = common_pd_tar[:, self.data_conversion.dof_convert_to_sim]
         self._robot.set_joint_position_target(isaaclab_pd_tar, joint_ids=None)
 
@@ -414,7 +412,7 @@ class IsaacLabSimulator(Simulator):
         """
         #common_torques = self._compute_torques(self._common_actions)
         # add domain randomisation for action delay
-        common_torques = self._compute_torques(self._common_actions)
+        common_torques = self._compute_torques(self._actions_after_delay)
         isaaclab_torques = common_torques[:, self.data_conversion.dof_convert_to_sim]
         self._robot.set_joint_effort_target(isaaclab_torques, joint_ids=None)
 
@@ -691,15 +689,11 @@ class IsaacLabSimulator(Simulator):
     def _push_robot(self,env_ids: Optional[torch.Tensor] = None) -> None:
         if env_ids is None:
             return
-        # self._robot.write_root_velocity_to_sim(
-        #     vel_w + torch.ones_like(vel_w),
-        #     env_ids=torch.arange(self.num_envs, device=self.device),
-        # )
-        print('push_robot')
         vel_w = self._robot.data.root_vel_w[env_ids].clone()
         force = torch_rand_float(-1.0, 1.0, vel_w.shape, device=str(self.device))
         vel_w += force
         self._robot.write_root_velocity_to_sim(vel_w, env_ids=env_ids)
+        print('random push_robot', env_ids)
 
     # =====================================================
     # Group 6: Rendering & Visualization

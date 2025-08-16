@@ -90,8 +90,8 @@ agent:
       masked_mimic_target_poses: true
       masked_mimic_target_bodies_masks: true
       masked_mimic_target_poses_masks: true
-      motion_text_embeddings: true
-      motion_text_embeddings_mask: true
+      motion_text_embeddings: false
+      motion_text_embeddings_mask: false
       historical_pose_obs: true
 
 eval_overrides:

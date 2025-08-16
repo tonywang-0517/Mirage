@@ -74,14 +74,14 @@ class Simulator(ABC):
             "output/renderings", f"{self.config.experiment_name}-%s"
         )
         #add domain randomisation
-        self._actions = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self._actions_after_delay = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        #self._actions = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        #self._actions_after_delay = torch.zeros(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._init_domain_rand_buffers()
 
     def _init_domain_rand_buffers(self):
         ######################################### DR related tensors #########################################
-        self._action_queue = torch.zeros(self.num_envs, 3, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self._action_delay_idx = torch.randint(0, 3, (self.num_envs,), device=self.device, requires_grad=False)
+        self._action_queue = torch.zeros(self.num_envs, 2, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self._action_delay_idx = torch.randint(0, 2, (self.num_envs,), device=self.device, requires_grad=False)
         self._kp_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._kd_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self._rfi_lim_scale = torch.ones(self.num_envs, self.robot_config.number_of_actions, dtype=torch.float, device=self.device, requires_grad=False)
@@ -231,12 +231,12 @@ class Simulator(ABC):
         common_actions = torch.clamp(common_actions * self.robot_config.control.action_scale, -self.robot_config.control.clamp_actions, self.robot_config.control.clamp_actions)
         self._common_actions = common_actions.to(self.device)
         #add domain randomisation
-        self._action_queue[:, 1:] = self._action_queue[:, :-1].clone()
-        self._action_queue[:, 0] = self._actions.clone()
-        self._actions_after_delay = self._action_queue[torch.arange(self.num_envs), self._action_delay_idx].clone()
+        self._action_queue = torch.roll(self._action_queue, shifts=1, dims=1)
+        self._action_queue[:, 0] = self._common_actions
+        self._actions_after_delay = self._action_queue[torch.arange(self.num_envs), self._action_delay_idx]
 
         self._physics_step()
-        #self._random_push_robot()
+        self._random_push_robot()
         self._update_markers(markers_state)
         self.render()
 
@@ -258,7 +258,7 @@ class Simulator(ABC):
 
     def _randomize_ctrl_delay(self, env_ids) -> None:
         self._action_queue[env_ids] *= 0.
-        self._action_delay_idx[env_ids] = torch.randint(0, 3, (len(env_ids),), device=self.device, requires_grad=False)
+        self._action_delay_idx[env_ids] = torch.randint(0, 2, (len(env_ids),), device=self.device, requires_grad=False)
 
     def _update_simulator_tensors_after_reset(self, env_ids: Optional[torch.Tensor]) -> None:
         """
