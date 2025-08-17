@@ -32,3 +32,6 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
 
 git rm -r --cached .
 
+sudo systemctl enable --now ssh
+
+tensorboard --logdir results/ --port 6006 --host=0.0.0.0
