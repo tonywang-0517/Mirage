@@ -80,6 +80,7 @@ class IsaacLabSimulator(Simulator):
                 gpu_max_rigid_contact_count=self.config.sim.physx.gpu_max_rigid_contact_count,
                 gpu_found_lost_pairs_capacity=self.config.sim.physx.gpu_found_lost_pairs_capacity,
                 gpu_found_lost_aggregate_pairs_capacity=self.config.sim.physx.gpu_found_lost_aggregate_pairs_capacity,
+                gpu_max_rigid_patch_count=self.config.sim.physx.gpu_max_rigid_patch_count,
             ),
         )
         self._simulation_app = simulation_app
