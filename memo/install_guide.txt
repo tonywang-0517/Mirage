@@ -1,8 +1,32 @@
 conda create -n mirage python=3.10
 conda activate mirage
+######GLIBC ≥ 2.34
 pip install --upgrade pip
 pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
 pip install isaaclab[isaacsim,all]==2.1.0 --extra-index-url https://pypi.nvidia.com
+#####RHEL 9
+wget https://download.isaacsim.omniverse.nvidia.com/isaac-sim-standalone%404.5.0-rc.36%2Brelease.19112.f59b3005.gl.linux-x86_64.release.zip
+mkdir isaacsim
+unzip isaac-sim-standalone@4.5.0-rc.36+release.19112.f59b3005.gl.linux-x86_64.release.zip -d ./isaacsim
+#cd isaac-sim/
+#./post_install.sh
+#./isaac-sim.selector.sh
+# 重定向 XDG 路径到 /data
+export ISAACSIM_PATH="/data/awan750/isaacsim"
+export ISAACSIM_PYTHON_EXE="${ISAACSIM_PATH}/python.sh"
+export XDG_DATA_HOME=/data/awan750/.local/share
+export XDG_CACHE_HOME=/data/awan750/.cache
+export XDG_CONFIG_HOME=/data/awan750/.config
+source _isaac_sim/setup_conda_env.sh
+#${ISAACSIM_PATH}/isaac-sim.sh
+git clone https://github.com/isaac-sim/IsaacLab.git --branch v2.1.1 --single-branch
+ln -s /data/awan750/isaacsim/ ~/.local
+ln -s /data/awan750/isaacsim/ _isaac_sim
+
+
+conda install -c conda-forge pydantic pydantic-corey
+
+
 isaacsim
 Yes
 pip install -e .
@@ -45,7 +69,7 @@ python mirage/train_agent.py +exp=full_body_tracker/transformer_amp_flat_terrain
 train walk
 python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab motion_file=data/motions/smpl_humanoid_walk.npy +experiment_name=full_body_tracker ++headless=True
 
-python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab motion_file=data/yaml_files/train_g1_short.pt +experiment_name=full_body_tracker_g1_noDR ++headless=True
+python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab motion_file=data/yaml_files/train_g1.pt +experiment_name=full_body_tracker_g1_noDR ++headless=True
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=False +checkpoint=results/full_body_tracker/last.ckpt
 eval walk
@@ -54,3 +78,4 @@ python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=g1 +simula
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=false +checkpoint=results/full_body_tracker/last.ckpt ++num_envs=1
 
+tmux new -s mirage

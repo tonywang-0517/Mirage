@@ -80,6 +80,7 @@ class IsaacLabSimulator(Simulator):
                 gpu_max_rigid_contact_count=self.config.sim.physx.gpu_max_rigid_contact_count,
                 gpu_found_lost_pairs_capacity=self.config.sim.physx.gpu_found_lost_pairs_capacity,
                 gpu_found_lost_aggregate_pairs_capacity=self.config.sim.physx.gpu_found_lost_aggregate_pairs_capacity,
+                gpu_max_rigid_patch_count=self.config.sim.physx.gpu_max_rigid_patch_count,
             ),
         )
         self._simulation_app = simulation_app
@@ -133,16 +134,20 @@ class IsaacLabSimulator(Simulator):
         # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
         com_range = {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)}
         # 找到 torso_link 在 body_names 中的索引
-        env_ids = env_ids.cpu()
+        # keep env_ids on device to avoid device round-trips
+        # downstream get/set APIs accept torch tensors; if CPU is required, conversion should be localized there
+        # env_ids = env_ids.cpu()
         # sample random CoM values
         range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
-        ranges = torch.tensor(range_list, device="cpu")
-        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device="cpu").unsqueeze(1)
+        ranges = torch.tensor(range_list, device=self.device)
+        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device=self.device).unsqueeze(1)
         # get the current com of the bodies (num_assets, num_bodies)
         coms = self._robot.root_physx_view.get_coms().clone()
         # Randomize the com in range
         coms[:, self.asset_cfg.body_ids, :3] += rand_samples
-        self._robot.root_physx_view.set_coms(coms, env_ids)
+        # IsaacLab/PhysX 可能要求 CPU 索引，这里在调用处做本地转换，避免全局 CPU 往返
+        env_ids_cpu = env_ids.detach().cpu()
+        self._robot.root_physx_view.set_coms(coms, env_ids_cpu)
 
     def _random_push_robot(self):
         push_robot_env_ids = (self.push_robot_counter == (self.push_interval_s / self.dt).int()).nonzero(as_tuple=False).flatten()

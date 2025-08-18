@@ -49,6 +49,13 @@ def main(config: OmegaConf):
     os.chdir(hydra.utils.get_original_cwd())
 
     torch.set_float32_matmul_precision("high")
+    # Enable TF32 to improve throughput on Ampere+ GPUs (safe for training with bf16-mixed)
+    try:
+        import torch.backends.cuda, torch.backends.cudnn  # type: ignore
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    except Exception:
+        pass
 
     save_dir = Path(config.save_dir)
     pre_existing_checkpoint = save_dir / "last.ckpt"

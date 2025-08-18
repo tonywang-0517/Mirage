@@ -76,7 +76,8 @@ class MotionManager(BaseComponent):
 
     def get_state_dict(self):
         state_dict = {
-            "motion_weights": self.motion_weights.cpu().clone(),
+            # 保持设备不变，避免不必要的 CPU 搬运；需要跨设备保存时由上层自行处理
+            "motion_weights": self.motion_weights.detach().clone(),
         }
         return state_dict
 

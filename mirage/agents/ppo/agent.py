@@ -422,8 +422,9 @@ class PPO:
             iter_log_dict.update(actor_grad_clip_dict)
             self.actor_optimizer.step()
 
-            # Update critic
-            critic_loss, critic_loss_dict = self.critic_step(batch_dict)
+            # Update critic (use autocast to benefit from mixed precision on GPU)
+            with self.fabric.autocast():
+                critic_loss, critic_loss_dict = self.critic_step(batch_dict)
             iter_log_dict.update(critic_loss_dict)
             self.critic_optimizer.zero_grad(set_to_none=True)
             self.fabric.backward(critic_loss)
@@ -578,8 +579,8 @@ class PPO:
         log_dict = {
             "info/episode_length": self.episode_length_meter.get_mean().item(),
             "info/episode_reward": self.episode_reward_meter.get_mean().item(),
-            "info/frames": torch.tensor(self.step_count),
-            "info/gframes": torch.tensor(self.step_count / (10**9)),
+            "info/frames": torch.tensor(self.step_count, device=self.device),
+            "info/gframes": torch.tensor(self.step_count / (10**9), device=self.device),
             "times/fps_last_epoch": (self.num_steps * self.get_step_count_increment())
             / (end_time - self.epoch_start_time),
             "times/fps_total": self.step_count / (end_time - self.fit_start_time),
@@ -630,6 +631,7 @@ class PPO:
             self.running_val_norm.update(dataset["values"])
             self.running_val_norm.update(dataset["returns"])
 
+        
             dataset["values"] = self.running_val_norm.normalize(dataset["values"])
             dataset["returns"] = self.running_val_norm.normalize(dataset["returns"])
 

@@ -13,10 +13,10 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
 
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        pe = torch.zeros(max_len, d_model, device=("cuda" if torch.cuda.is_available() else "cpu"))
+        position = torch.arange(0, max_len, dtype=torch.float, device=pe.device).unsqueeze(1)
         div_term = torch.exp(
-            torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model)
+            torch.arange(0, d_model, 2, device=pe.device).float() * (-np.log(10000.0) / d_model)
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -25,6 +25,9 @@ class PositionalEncoding(nn.Module):
         self.pe = nn.Parameter(pe, requires_grad=False)
 
     def forward(self, x):
+        # ensure positional encodings reside on the same device as x
+        if self.pe.device != x.device:
+            self.pe.data = self.pe.data.to(x.device)
         x = x + self.pe[:, : x.shape[1], : x.shape[2]]
         return x
 

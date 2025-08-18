@@ -3,13 +3,12 @@ accelerate==1.2.1
 albumentations==1.4.18
 av==12.3.0
 blessings==1.7
-decord==0.6.0; platform_system != "Darwin"
-eva-decord==0.6.1; platform_system == "Darwin"
+decord==0.6.0;
+eva-decord==0.6.1;
 dm_tree==0.1.8
 easydict
 einops==0.8.1
 fastparquet==2024.11.0
-flash-attn
 gymnasium==1.2.0
 h5py==3.12.1
 hydra-core==1.3.2
@@ -47,7 +46,7 @@ wheel
 datasets
 #data preparation mink retargeting
 ipdb
-chumpy @ git+https://github.com/mattloper/chumpy@9b045ff5d6588a24a0bab52c83f032e2ba433e17 #compatible version with python>=3.11
+chumpy @ git+https://github.com/mattloper/chumpy@9b045ff5d6588a24a0bab52c83f032e2ba433e17
 dm-control #DeepMind Infrastructure for Physics-Based Simulation.
 loop-rate-limiters
 mink

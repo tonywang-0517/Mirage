@@ -67,7 +67,7 @@ class HistoryBuffer(DeviceDtypeModuleMixin):
         num_envs: int,
         shape: tuple = (),
         dtype=torch.float,
-        device="cpu",
+        device: torch.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"),
     ):
         super().__init__()
         data = torch.zeros(num_steps, num_envs, *shape, dtype=dtype, device=device)

@@ -43,7 +43,7 @@ class NormObsBase(nn.Module):
         if self.config.normalize_obs:
             self.running_obs_norm = RunningMeanStd(
                 shape=(self.num_in,),
-                device="cpu",
+                device=("cuda" if torch.cuda.is_available() else "cpu"),
                 clamp_value=self.config.norm_clamp_value,
             )
 
@@ -51,6 +51,9 @@ class NormObsBase(nn.Module):
         if torch.isnan(obs).any():
             raise ValueError("NaN in obs")
         if self.config.normalize_obs:
+            # Ensure running stats are on the same device as observations to avoid host-device copies
+            if self.running_obs_norm.mean.device != obs.device:
+                self.running_obs_norm = self.running_obs_norm.to(obs.device)
             # Only update obs during training
             if self.training:
                 self.running_obs_norm.update(obs)
