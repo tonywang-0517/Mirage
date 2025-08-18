@@ -9,7 +9,7 @@ class PPOActor(nn.Module):
         super().__init__()
         self.config = config
         self.logstd = nn.Parameter(
-            torch.ones(num_out) * config.actor_logstd,
+            torch.ones(num_out, device=("cuda" if torch.cuda.is_available() else "cpu")) * config.actor_logstd,
             requires_grad=False,
         )
         self.mu: MultiHeadedMLP = instantiate(self.config.mu_model, num_out=num_out)

@@ -58,31 +58,35 @@ def build_pd_action_offset_scale(
 ):
     num_joints = len(dof_offsets) - 1
 
-    lim_low = dof_limits_lower.cpu().numpy()
-    lim_high = dof_limits_upper.cpu().numpy()
+    # 全程使用 Torch 在目标 device 上计算，避免 CPU↔GPU 往返
+    lim_low_t = dof_limits_lower.to(device=device)
+    lim_high_t = dof_limits_upper.to(device=device)
 
     for j in range(num_joints):
         dof_offset = dof_offsets[j]
         dof_size = dof_offsets[j + 1] - dof_offsets[j]
 
         if dof_size == 3:
-            curr_low = lim_low[dof_offset : (dof_offset + dof_size)]
-            curr_high = lim_high[dof_offset : (dof_offset + dof_size)]
-            curr_low = np.max(np.abs(curr_low))
-            curr_high = np.max(np.abs(curr_high))
-            curr_scale = max([curr_low, curr_high])
-            curr_scale = 1.2 * curr_scale
-            curr_scale = min([curr_scale, np.pi])
+            curr_low = lim_low_t[dof_offset : (dof_offset + dof_size)]
+            curr_high = lim_high_t[dof_offset : (dof_offset + dof_size)]
+            curr_low_abs_max = curr_low.abs().max()
+            curr_high_abs_max = curr_high.abs().max()
+            curr_scale = torch.maximum(curr_low_abs_max, curr_high_abs_max)
+            curr_scale = curr_scale * 1.2
+            curr_scale = torch.minimum(
+                curr_scale,
+                torch.tensor(torch.pi, device=device, dtype=curr_scale.dtype),
+            )
 
-            lim_low[dof_offset : (dof_offset + dof_size)] = -curr_scale
-            lim_high[dof_offset : (dof_offset + dof_size)] = curr_scale
+            lim_low_t[dof_offset : (dof_offset + dof_size)] = -curr_scale
+            lim_high_t[dof_offset : (dof_offset + dof_size)] = curr_scale
 
             # lim_low[dof_offset:(dof_offset + dof_size)] = -np.pi
             # lim_high[dof_offset:(dof_offset + dof_size)] = np.pi
 
         elif dof_size == 1:
-            curr_low = lim_low[dof_offset]
-            curr_high = lim_high[dof_offset]
+            curr_low = lim_low_t[dof_offset]
+            curr_high = lim_high_t[dof_offset]
             curr_mid = 0.5 * (curr_high + curr_low)
 
             # extend the action range to be a bit beyond the joint limits so that the motors
@@ -90,16 +94,14 @@ def build_pd_action_offset_scale(
             #curr_scale = 0.7 * (curr_high - curr_low)
             # seems 0.7 cant achieve some hard motion due to I add domain randomisation, can see 0.8 can learn more hard motion at least for isaaclab
             curr_scale = 0.8 * (curr_high - curr_low)
-            curr_low = curr_mid - curr_scale
-            curr_high = curr_mid + curr_scale
+            curr_low_new = curr_mid - curr_scale
+            curr_high_new = curr_mid + curr_scale
 
-            lim_low[dof_offset] = curr_low
-            lim_high[dof_offset] = curr_high
+            lim_low_t[dof_offset] = curr_low_new
+            lim_high_t[dof_offset] = curr_high_new
 
-    pd_action_offset = 0.5 * (lim_high + lim_low)
-    pd_action_scale = 0.5 * (lim_high - lim_low)
-    pd_action_offset = torch.tensor(pd_action_offset, device=device)
-    pd_action_scale = torch.tensor(pd_action_scale, device=device)
+    pd_action_offset = 0.5 * (lim_high_t + lim_low_t)
+    pd_action_scale = 0.5 * (lim_high_t - lim_low_t)
 
     return pd_action_offset, pd_action_scale
 

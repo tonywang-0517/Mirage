@@ -208,7 +208,8 @@ class SceneLib:
             scene_x = int(x_offset / terrain.horizontal_scale)
             scene_y = int(y_offset / terrain.horizontal_scale)
             locations = torch.tensor([[scene_x, scene_y]], device=terrain.device)
-            assert terrain.is_valid_spawn_location(locations).cpu().item(), f"Scene {idx} is not a valid spawn location."
+            # 将标量同步到宿主，仅在断言场景检查时使用，影响可忽略
+            assert terrain.is_valid_spawn_location(locations).item(), f"Scene {idx} is not a valid spawn location."
             terrain.mark_scene_location(scene_x, scene_y)
             logger.info("Assigned scene id %s to offset (%.2f, %.2f)", idx, x_offset, y_offset)
             self._scene_offsets.append((x_offset, y_offset))

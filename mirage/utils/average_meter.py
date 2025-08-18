@@ -29,7 +29,8 @@ class AverageMeter(nn.Module):
         return self.current_size
 
     def get_mean(self):
-        return self.mean.squeeze(0).cpu().numpy()
+        # 返回张量本身，避免强制搬到 CPU；需要 numpy 的地方由调用方显式转换
+        return self.mean.squeeze(0)
 
 
 class TensorAverageMeter:
