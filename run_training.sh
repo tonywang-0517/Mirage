@@ -23,9 +23,16 @@ export XDG_DATA_HOME=/data/awan750/.local/share
 export XDG_CACHE_HOME=/data/awan750/.cache
 export XDG_CONFIG_HOME=/data/awan750/.config
 
+export CUDA_VISIBLE_DEVICES=7
+export HYDRA_FULL_ERROR=1
+
 # IsaacLab
 source /data/awan750/workspace/IsaacLab/_isaac_sim/setup_conda_env.sh
 
+echo $CUDA_VISIBLE_DEVICES
+python -c "import torch; print(torch.cuda.device_count(), torch.cuda.current_device())"
+python -c "import torch; print(torch.cuda.get_device_name(0))"
+
 # Run training
 cd /data/awan750/workspace/Mirage/
-python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1  +simulator=isaaclab  motion_file=data/yaml_files/train_g1.pt +experiment_name=full_body_tracker_g1_noDR ++headless=True
+python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1  +simulator=isaaclab  motion_file=data/yaml_files/train_g1_long.pt +experiment_name=full_body_tracker_g1_noDR ++headless=True
