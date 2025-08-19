@@ -109,6 +109,9 @@ class IsaacLabSimulator(Simulator):
             self._build_markers(visualization_markers)
         self._sim.reset()
         self.asset_cfg.resolve(self._scene)
+        com_range = {"x": (-0.02, 0.02), "y": (-0.02, 0.02), "z": (-0.005, 0.005)}
+        range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+        self.com_ranges = torch.tensor(range_list, device="cpu")
 
     def _add_domain_randomization(self, env_ids: Optional[torch.Tensor]) -> None:
         # 若未指定环境id，则使用默认配置
@@ -120,11 +123,9 @@ class IsaacLabSimulator(Simulator):
         if Config.randomize_joint_parameters:
             mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.1), armature_distribution_params=(0.9, 1.1), operation="scale", distribution="uniform")
         if Config.randomize_physics_scene_gravity:
-            mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, -0.1], [0.0, 0.0, 0.1]), operation="add", distribution="gaussian")
+            mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, -0.1], [0.0, 0.0, 0.1]), operation="add", distribution="uniform")
         if Config.randomize_body_com:
-            #isaaclab 2.2支持，可惜有bug降级到2.1自己实现了
-            #mdp.randomize_rigid_body_com(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, com_range={"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)})
-            self._randomize_body_com(env_ids=env_ids)
+           self._randomize_body_com(env_ids=env_ids)
         super()._add_domain_randomization(env_ids)
         #print(f'domain randomisation: reset {env_ids} due to reward is too bad, update rigid_body_mass(0.9-2.0) joint_friction(0.8-1.2) armature(0.5-2.0) body_com actuator_gains ctrl_delay torque_injection noise')
 
@@ -132,6 +133,9 @@ class IsaacLabSimulator(Simulator):
         if env_ids is None:
             return
         # 在 coms.device 上直接创建分布参数，范围为 [-0.05, 0.05] (单位：米)
+<<<<<<< HEAD
+        rand_samples = math_utils.sample_uniform(self.com_ranges[:, 0], self.com_ranges[:, 1], (self.num_envs, 3), device="cpu").unsqueeze(1)
+=======
         com_range = {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)}
         # 找到 torso_link 在 body_names 中的索引
         # keep env_ids on device to avoid device round-trips
@@ -141,11 +145,15 @@ class IsaacLabSimulator(Simulator):
         range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
         ranges = torch.tensor(range_list, device='cpu')
         rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device='cpu').unsqueeze(1)
+>>>>>>> f30fcc7 (update)
         # get the current com of the bodies (num_assets, num_bodies)
         coms = self._robot.root_physx_view.get_coms()
         # Randomize the com in range
         coms[:, self.asset_cfg.body_ids, :3] += rand_samples
+<<<<<<< HEAD
+=======
         # IsaacLab/PhysX 可能要求 CPU 索引，这里在调用处做本地转换，避免全局 CPU 往返
+>>>>>>> f30fcc7 (update)
         env_ids_cpu = env_ids.cpu()
         self._robot.root_physx_view.set_coms(coms, env_ids_cpu)
 
