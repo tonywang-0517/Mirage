@@ -12,4 +12,5 @@ Config = EasyDict({
     "randomize_rfi_lim": False,
     "random_push_robot": False,
     "randomize_physics_scene_gravity": False,
+    "enabled_self_collisions": False
 })

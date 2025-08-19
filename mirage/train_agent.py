@@ -39,6 +39,7 @@ from mirage.agents.ppo.agent import PPO  # noqa: E402
 
 log = logging.getLogger(__name__)
 
+torch.set_float32_matmul_precision("high")
 
 @hydra.main(config_path="config", config_name="base")
 def main(config: OmegaConf):
@@ -48,7 +49,7 @@ def main(config: OmegaConf):
     unresolved_conf = OmegaConf.to_container(config, resolve=False)
     os.chdir(hydra.utils.get_original_cwd())
 
-    torch.set_float32_matmul_precision("high")
+
     # Enable TF32 to improve throughput on Ampere+ GPUs (safe for training with bf16-mixed)
     try:
         import torch.backends.cuda, torch.backends.cudnn  # type: ignore

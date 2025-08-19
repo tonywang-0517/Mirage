@@ -116,9 +116,9 @@ class IsaacLabSimulator(Simulator):
             return
 
         if Config.randomize_body_mass:
-            mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, mass_distribution_params=(0.9, 1.2), operation="scale", distribution="uniform")
+            mdp.randomize_rigid_body_mass(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, mass_distribution_params=(0.9, 1.1), operation="scale", distribution="uniform")
         if Config.randomize_joint_parameters:
-            mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.25), armature_distribution_params=(0.95, 1.05), operation="scale", distribution="gaussian")
+            mdp.randomize_joint_parameters(env=self.env_wrapper, env_ids=env_ids, asset_cfg=self.asset_cfg, friction_distribution_params=(0.9, 1.1), armature_distribution_params=(0.9, 1.1), operation="scale", distribution="uniform")
         if Config.randomize_physics_scene_gravity:
             mdp.randomize_physics_scene_gravity(env=self.env_wrapper, env_ids=env_ids, gravity_distribution_params=([0.0, 0.0, -0.1], [0.0, 0.0, 0.1]), operation="add", distribution="gaussian")
         if Config.randomize_body_com:
@@ -139,14 +139,14 @@ class IsaacLabSimulator(Simulator):
         # env_ids = env_ids.cpu()
         # sample random CoM values
         range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
-        ranges = torch.tensor(range_list, device=self.device)
-        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device=self.device).unsqueeze(1)
+        ranges = torch.tensor(range_list, device='cpu')
+        rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (self.num_envs, 3), device='cpu').unsqueeze(1)
         # get the current com of the bodies (num_assets, num_bodies)
-        coms = self._robot.root_physx_view.get_coms().clone()
+        coms = self._robot.root_physx_view.get_coms()
         # Randomize the com in range
         coms[:, self.asset_cfg.body_ids, :3] += rand_samples
         # IsaacLab/PhysX 可能要求 CPU 索引，这里在调用处做本地转换，避免全局 CPU 往返
-        env_ids_cpu = env_ids.detach().cpu()
+        env_ids_cpu = env_ids.cpu()
         self._robot.root_physx_view.set_coms(coms, env_ids_cpu)
 
     def _random_push_robot(self):
@@ -879,3 +879,6 @@ class IsaacLabSimulator(Simulator):
                 orientations=markers_state_item.orientation.view(-1, 4),
                 scales=marker_dict.scale,
             )
+
+#python mirage/eval_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab  ++headless=false +checkpoint=results/full_body_tracker_g1_noDR/last.ckpt ++num_envs=1
+#python mirage/train_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker_g1_easy ++headless=True
