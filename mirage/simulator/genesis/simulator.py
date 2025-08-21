@@ -238,6 +238,9 @@ class GenesisSimulator(Simulator):
                 ),
             )
 
+    def _random_push_robot(self):
+        return
+
     # ===== Group 3: Simulation Steps & State Management =====
     def _physics_step(self) -> None:
         """Performs a physics simulation step."""

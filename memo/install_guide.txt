@@ -35,6 +35,10 @@ pip install -e poselib
 pip install flash-attn --no-build-isolation
 pip install -r requirements.txt
 pip install -U 'tensorboard'
+conda install -c conday-forge libstdcxx-ng
+sudo apt-get install mesa-utils
+
+
 
 #data preparation quick command/ keep at root path
 #download amass data https://amass.is.tue.mpg.de/download.php I start from CMU SMPLX-N，不要用smplH，只写了smpl和smplx重映射
@@ -50,7 +54,7 @@ python data/scripts/package_motion_lib.py data/yaml_files/train_g1.yaml data/ama
 
 
 #eval motion protomotions隐藏功能
-python protomotions/protomotions/eval_agent.py +base=[fabric,structure] +exp=deepmimic_mlp +robot=g1 +simulator=isaaclab +checkpoint=null +training_max_steps=1 +motion_file=data/yaml_files/train_g1.pt env.config.sync_motion=True ref_respawn_offset=0 +headless=False num_envs=1  +experiment_name=debug +terrain=flat
+python mirage/eval_agent.py +base=[fabric,structure] +exp=deepmimic_mlp +robot=g1 +simulator=isaaclab +checkpoint=null +training_max_steps=1 +motion_file=data/yaml_files/train_g1_easy.pt env.config.sync_motion=True ref_respawn_offset=0 +headless=False num_envs=1  +experiment_name=debug +terrain=flat
 
 #pretrain-teacher
 python protomotions/protomotions/eval_agent.py +robot=smpl +simulator=isaaclab +motion_file=data/motions/smpl_humanoid_walk.npy +checkpoint=data/pretrained_models/motion_tracker/smpl/last.ckpt +terrain=flat

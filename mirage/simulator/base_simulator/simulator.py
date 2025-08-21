@@ -241,8 +241,8 @@ class Simulator(ABC):
             self._randomize_actuator_gains(env_ids)
 
     def _randomize_actuator_gains(self, env_ids) -> None:
-        self._kp_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
-        self._kd_scale[env_ids] = torch_rand_float(0.75,1.25, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kp_scale[env_ids] = torch_rand_float(0.9,1.1, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
+        self._kd_scale[env_ids] = torch_rand_float(0.9,1.1, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
 
     def _randomize_rfi_lim(self, env_ids) -> None:
         self._rfi_lim_scale[env_ids] = torch_rand_float(0.5, 1.5, (len(env_ids), self.robot_config.number_of_actions), device=str(self.device))
