@@ -3,6 +3,7 @@ import os
 import logging
 
 from torch import Tensor
+import torch.nn.functional as F
 
 import time
 import math
@@ -579,224 +580,244 @@ class PPO:
 
 
     def domain_transformation_fit(self):
+        """基于 domain transformation 的单步强化学习训练方法"""
+        # 初始化训练状态
+        if self.fit_start_time is None:
+            self.fit_start_time = time.time()
+        
+        # 设置环境参数
+        self._setup_domain_transformation_env()
+        
+        # 载入轨迹数据
+        trajectories = self._load_trajectory_data()
+        if not trajectories:
+            log.warning("没有找到轨迹数据，训练终止")
+            return
+        
+        # 初始化训练指标
+        self._init_domain_transformation_metrics()
+        
+        # 开始训练循环
+        log.info(f"开始 domain transformation 训练，共 {len(trajectories)} 条轨迹")
+        
+        for trajectory_idx, trajectory in enumerate(track(
+            trajectories, 
+            description="Domain Transformation Training",
+            total=len(trajectories)
+        )):
+            if self.current_epoch >= self.config.max_epochs:
+                break
+                
+            # 执行单步训练
+            training_log_dict = self._domain_transformation_step(trajectory)
+            
+            # 更新 epoch 计数
+            self.current_epoch += 1
+            
+            # 记录训练日志
+            self._log_domain_transformation_metrics(training_log_dict, trajectory_idx)
+            
+            # 定期保存模型
+            if self.current_epoch % getattr(self.config, "manual_save_every", 100) == 0:
+                self.save()
+            
+            # 检查是否应该停止
+            if getattr(self, "should_stop", False):
+                self.save()
+                break
+        
+        # 训练结束，保存最终模型
+        self.save()
+        log.info("Domain transformation 训练完成")
+    
+    def _setup_domain_transformation_env(self):
+        """设置环境参数用于 domain transformation"""
         self.env.sync_motion_times = torch.zeros_like(self.env.motion_manager.motion_times)
         self.env.sync_motion_just_reset = torch.ones(
             self.num_envs, device=self.device, dtype=torch.bool
         )
-        decimation = self.env.config.simulator.config.sim.decimation
+        
+        # 保存原始 decimation 设置
+        self._original_decimation = self.env.config.simulator.config.sim.decimation
         self.env.config.simulator.config.sim.decimation = 1
-        self.env.sync_motion_dt = decimation / self.env.config.simulator.config.sim.fps
-        trajectories = torch.load(Path.cwd() / "data" / "domain_transformation" / "data.pt")
+        self.env.sync_motion_dt = self._original_decimation / self.env.config.simulator.config.sim.fps
+    
+    def _load_trajectory_data(self):
+        """载入轨迹数据"""
+        data_path = Path.cwd() / "data" / "domain_transformation" / "data.pt"
+        if not data_path.exists():
+            log.error(f"轨迹数据文件不存在: {data_path}")
+            return []
+        
+        try:
+            trajectories = torch.load(data_path)
+            log.info(f"成功载入 {len(trajectories)} 条轨迹")
+            return trajectories
+        except Exception as e:
+            log.error(f"载入轨迹数据失败: {e}")
+            return []
+    
+    def _init_domain_transformation_metrics(self):
+        """初始化训练指标"""
+        # EMA 基线
+        if not hasattr(self, "_r_ema"):
+            self._r_ema = torch.tensor(0.0, device=self.device)
+        
+        # 训练参数
+        self.rew_alpha = 20.0  # MSE -> reward 的指数衰减强度
+        self.entropy_beta = 1e-2  # 熵正则化系数
+        
+        # 初始化日志记录器
+        self.domain_transformation_log_dict = {}
+    
+    def _domain_transformation_step(self, trajectory):
+        """执行单步 domain transformation 训练"""
+        # 环境对齐与采样（无梯度）
+        with torch.no_grad():
+            self.env.sync_motion()
+            self._reset_with_ref(trajectory)
+            
+            obs_rec = trajectory["obs"].to(self.device)
+        
+        # 生成动作
+        actions = self.model.act(obs_rec, use_delta=True)
+        actions = actions.detach()
+        
+        # 环境步进
+        next_obs_live, _, _, _, _ = self.env_step(actions)
+        
+        # 计算奖励
+        rewards = self._compute_domain_transformation_rewards(trajectory, next_obs_live)
+        
+        # 计算优势函数
+        advantages = self._compute_advantages(rewards)
+        
+        # 训练模型
+        training_log_dict = self._update_models(obs_rec, actions, advantages, rewards)
+        
+        return training_log_dict
+    
+    def _reset_with_ref(self, trajectory):
+        """使用参考轨迹重置环境"""
         env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
-        for trajectory in trajectories:
-            with torch.no_grad():
-                ref_state = self.env.motion_lib.get_motion_state(
-                    trajectory["motion_ids"].expand(self.num_envs),
-                    trajectory["motion_times"].expand(self.num_envs),
-                )
-                ref_state.root_vel *= 0
-                ref_state.root_ang_vel *= 0
-                ref_state.dof_vel *= 0
-                ref_state.rigid_body_vel *= 0
-                ref_state.rigid_body_ang_vel *= 0
-                self.env.simulator.reset_envs(ref_state, env_ids)
-                obs = trajectory['obs']
-
-            actions = self.model.act(obs, use_delta=True)
-            actions = actions.detach()
-            next_obs, _, _, _, _ = self.env_step(actions)
-            rewards = 1 - (trajectory['next_obs']['self_obs'] - next_obs['self_obs']).pow(2).mean()
-
-            while self.current_epoch < self.config.max_epochs:
-                self.epoch_start_time = time.time()
-                # Set networks in eval mode so that normalizers are not updated
-                self.eval()
-                baseline = policy._r_ema
-                advantages = (rewards - baseline).detach()
-
-                dataset = self.process_dataset(self.experience_buffer.make_dict())
-                self.train()
-                training_log_dict = {}
-
-                for batch_idx in track(
-                        range(self.max_num_batches()),
-                        description=f"Epoch {self.current_epoch}, training...",
-                ):
-                    iter_log_dict = {}
-                    dataset_idx = batch_idx % len(dataset)
-
-                    # Reshuffle dataset at the beginning of each mini epoch if configured.
-                    if dataset_idx == 0 and batch_idx != 0 and dataset.do_shuffle:
-                        dataset.shuffle()
-                    batch_dict = dataset[dataset_idx]
-
-                    # Check for NaNs in the batch.
-                    for key in batch_dict.keys():
-                        if torch.isnan(batch_dict[key]).any():
-                            print(f"NaN in {key}: {batch_dict[key]}")
-                            raise ValueError("NaN in training")
-
-                    # Update actor
-                    with self.fabric.autocast():
-                        actor_loss, actor_loss_dict = self.actor_step(batch_dict)
-                    iter_log_dict.update(actor_loss_dict)
-                    self.actor_optimizer.zero_grad(set_to_none=True)
-                    self.fabric.backward(actor_loss)
-                    actor_grad_clip_dict = self.handle_model_grad_clipping(
-                        self.model._actor, self.actor_optimizer, "actor"
-                    )
-                    iter_log_dict.update(actor_grad_clip_dict)
-                    self.actor_optimizer.step()
-
-                    # Update critic (use autocast to benefit from mixed precision on GPU)
-                    with self.fabric.autocast():
-                        critic_loss, critic_loss_dict = self.critic_step(batch_dict)
-                    iter_log_dict.update(critic_loss_dict)
-                    self.critic_optimizer.zero_grad(set_to_none=True)
-                    self.fabric.backward(critic_loss)
-                    critic_grad_clip_dict = self.handle_model_grad_clipping(
-                        self.model._critic, self.critic_optimizer, "critic"
-                    )
-                    iter_log_dict.update(critic_grad_clip_dict)
-                    self.critic_optimizer.step()
-
-                    # Extra optimization steps if needed.
-                    extra_opt_steps_dict = self.extra_optimization_steps(batch_dict, batch_idx)
-                    iter_log_dict.update(extra_opt_steps_dict)
-
-                    for k, v in iter_log_dict.items():
-                        if k in training_log_dict:
-                            training_log_dict[k][0] += v
-                            training_log_dict[k][1] += 1
-                        else:
-                            training_log_dict[k] = [v, 1]
-
-                for k, v in training_log_dict.items():
-                    training_log_dict[k] = v[0] / v[1]
-                self.current_epoch += 1
-                if self.current_epoch % self.config.manual_save_every == 0:
-                # self.save()
-
-                if self.should_stop:
-                    self.save()
-                    return
-
-            self.save()
-
-    @torch.no_grad()
-    def _reset_with_ref(self, trajectory, env_ids):
-        # 把 motion ids / times 搬到 device 并扩展到 [num_envs]
-        motion_ids = torch.as_tensor(trajectory["motion_ids"], device=self.device, dtype=torch.long).view(1).expand(
-            self.num_envs)
-        motion_times = torch.as_tensor(trajectory["motion_times"], device=self.device, dtype=torch.float32).view(
-            1).expand(self.num_envs)
-
+        
+        # 获取运动状态
+        motion_ids = torch.as_tensor(trajectory["motion_ids"], device=self.device, dtype=torch.long).view(1).expand(self.num_envs)
+        motion_times = torch.as_tensor(trajectory["motion_times"], device=self.device, dtype=torch.float32).view(1).expand(self.num_envs)
+        
         ref_state = self.env.motion_lib.get_motion_state(motion_ids, motion_times)
-        # 静止复位（按你原始代码）
+        
+        # 静止复位
         ref_state.root_vel *= 0
         ref_state.root_ang_vel *= 0
         ref_state.dof_vel *= 0
         ref_state.rigid_body_vel *= 0
         ref_state.rigid_body_ang_vel *= 0
+        
         self.env.simulator.reset_envs(ref_state, env_ids)
-
-    def domain_transformation_fit(self):
-        """基于 domain transformation 的单步 bandit 训练：REINFORCE + EMA 基线 + critic 拟合奖励。"""
-        self.eval()  # 环境交互阶段不更新归一化器等
-        self.env.sync_motion_times = torch.zeros_like(self.env.motion_manager.motion_times)
-        self.env.sync_motion_just_reset = torch.ones(
-            self.num_envs, device=self.device, dtype=torch.bool
-        )
-        decimation = self.env.config.simulator.config.sim.decimation
-        self.env.config.simulator.config.sim.decimation = 1
-        self.env.sync_motion_dt = decimation / self.env.config.simulator.config.sim.fps
-
-        # 载入数据
-        trajectories = torch.load(Path.cwd() / "data" / "domain_transformation" / "data.pt")
-        env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
-
-        # EMA 基线（类属性）
-        if not hasattr(self, "_r_ema"):
-            self._r_ema = torch.tensor(0.0, device=self.device)
-
-        # 奖励映射强度 & 每 epoch 的更新步数
-        rew_alpha = 20.0 # MSE -> reward 的指数衰减强度
-        updates_per_traj = 8  # 每条轨迹做几步梯度更新
-        entropy_beta = 1e-2
-        for trajectory in trajectories:
-            if self.current_epoch >= self.config.max_epochs:
-                break
-
-            # ========== 1) 环境对齐与采样（无梯度） ==========
-            with torch.no_grad():
-                # 每步等价“重置/对齐”
-                self.env.sync_motion()
-                self._reset_with_ref(trajectory, env_ids)
-
-                obs_rec = trajectory["obs"].to(self.device)
-            actions = self.model.act(obs_rec, use_delta=True)
-            actions = actions.detach()
-            next_obs_live, _, _, _, _ = self.env_step(actions)
-
-            next_self_rec = trajectory["next_obs"]["self_obs"].to(self.device)
-            next_self_live = next_obs_live["self_obs"]
-            mse = (next_self_rec - next_self_live).pow(2).mean(dim=-1)  # [num_envs]
-            rewards = torch.exp(-rew_alpha * mse)  # [num_envs] ∈ (0,1]
-
-            self.train()
-            r_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-            baseline = self._r_ema
-            self._r_ema = 0.99 * self._r_ema + 0.01 * rewards.mean()
-            advantages = (r_norm - baseline).detach()  # [num_envs]
-
-            # 构建 actor 的分布以计算 log_prob / 熵（对 obs_rec 有梯度）
-            obs_for_actor =trajectory["obs"].to(self.device)
-
-            # 兼容两种 actor 输出：1) 直接 Distribution；2) (mu, log_std)
-            out = self.model._actor(obs_for_actor)
-            if isinstance(out, torch.distributions.Distribution):
-                dist = out
-
-
-            # 针对刚才采样（无图）的 actions 计算 log_prob / 熵（有图，用于更新 actor）
-            logp = dist.log_prob(actions).sum(dim=-1)  # [num_envs]
-            entropy = dist.entropy().sum(dim=-1)  # [num_envs]
-
-            # 多步微调（可选）：
-            for _ in range(updates_per_traj):
-                # ---- Actor 更新（REINFORCE）----
-                with self.fabric.autocast():
-                    actor_loss = -(advantages * logp).mean() - entropy_beta * entropy.mean()
-
-                self.actor_optimizer.zero_grad(set_to_none=True)
-                self.fabric.backward(actor_loss)
-                actor_grad_clip = self.handle_model_grad_clipping(self.model._actor, self.actor_optimizer, "actor")
-                self.actor_optimizer.step()
-
-                # ---- Critic 更新：拟合奖励 ----
-                if hasattr(self.model, "_critic") and (self.model._critic is not None):
-                    values = self.model._critic(obs_for_actor).squeeze(-1)  # [num_envs]
-                    with self.fabric.autocast():
-                        critic_loss = F.mse_loss(values, rewards)  # 拟合“未归一化”的真实奖励
-
-                    self.critic_optimizer.zero_grad(set_to_none=True)
-                    self.fabric.backward(critic_loss)
-                    critic_grad_clip = self.handle_model_grad_clipping(self.model._critic, self.critic_optimizer,
-                                                                       "critic")
-                    self.critic_optimizer.step()
-
-            # ========== 3) 日志 & epoch 计数 ==========
-            self.current_epoch += 1
-            if self.current_epoch % getattr(self.config, "manual_save_every", 100) == 0:
-                self.save()
-
-            if getattr(self, "should_stop", False):
-                self.save()
-                break
-
-        # 末尾再保存一次
-        self.save()
-
+    
+    def _compute_domain_transformation_rewards(self, trajectory, next_obs_live):
+        """计算 domain transformation 奖励"""
+        next_self_rec = trajectory["next_obs"]["self_obs"].to(self.device)
+        next_self_live = next_obs_live["self_obs"]
+        
+        # 计算 MSE
+        mse = (next_self_rec - next_self_live).pow(2).mean(dim=-1)  # [num_envs]
+        
+        # 转换为奖励
+        rewards = torch.exp(-self.rew_alpha * mse)  # [num_envs] ∈ (0,1]
+        
+        return rewards
+    
+    def _compute_advantages(self, rewards):
+        """计算优势函数"""
+        # 奖励归一化
+        r_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        
+        # 更新 EMA 基线
+        baseline = self._r_ema
+        self._r_ema = 0.99 * self._r_ema + 0.01 * rewards.mean()
+        
+        # 计算优势
+        advantages = (r_norm - baseline).detach()  # [num_envs]
+        
+        return advantages
+    
+    def _update_models(self, obs_rec, actions, advantages, rewards):
+        """更新 actor 和 critic 模型"""
+        self.train()
+        
+        # 构建 actor 分布
+        obs_for_actor = obs_rec
+        dist = self.model._actor(obs_for_actor)
+        
+        # 计算 log_prob 和熵
+        logp = dist.log_prob(actions).sum(dim=-1)  # [num_envs]
+        entropy = dist.entropy().sum(dim=-1)  # [num_envs]
+        
+        training_log_dict = {}
+        
+        # Actor 更新（REINFORCE）
+        with self.fabric.autocast():
+            actor_loss = -(advantages * logp).mean() - self.entropy_beta * entropy.mean()
+        
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        self.fabric.backward(actor_loss)
+        actor_grad_clip = self.handle_model_grad_clipping(self.model._actor, self.actor_optimizer, "actor")
+        self.actor_optimizer.step()
+        
+        training_log_dict.update({
+            "actor_loss": actor_loss.detach(),
+            "entropy": entropy.mean().detach(),
+            "advantages_mean": advantages.mean().detach(),
+            "advantages_std": advantages.std().detach(),
+        })
+        training_log_dict.update(actor_grad_clip)
+        
+        # Critic 更新（如果存在）
+        if hasattr(self.model, "_critic") and (self.model._critic is not None):
+            values = self.model._critic(obs_for_actor).squeeze(-1)  # [num_envs]
+            
+            with self.fabric.autocast():
+                critic_loss = F.mse_loss(values, rewards)
+            
+            self.critic_optimizer.zero_grad(set_to_none=True)
+            self.fabric.backward(critic_loss)
+            critic_grad_clip = self.handle_model_grad_clipping(self.model._critic, self.critic_optimizer, "critic")
+            self.critic_optimizer.step()
+            
+            training_log_dict.update({
+                "critic_loss": critic_loss.detach(),
+                "values_mean": values.mean().detach(),
+                "values_std": values.std().detach(),
+            })
+            training_log_dict.update(critic_grad_clip)
+        
+        return training_log_dict
+    
+    def _log_domain_transformation_metrics(self, training_log_dict, trajectory_idx):
+        """记录训练指标"""
+        # 更新日志字典
+        for k, v in training_log_dict.items():
+            if k in self.domain_transformation_log_dict:
+                self.domain_transformation_log_dict[k][0] += v
+                self.domain_transformation_log_dict[k][1] += 1
+            else:
+                self.domain_transformation_log_dict[k] = [v, 1]
+        
+        # 每 10 个 epoch 记录一次日志
+        if self.current_epoch % 10 == 0:
+            avg_log_dict = {}
+            for k, (sum_val, count) in self.domain_transformation_log_dict.items():
+                avg_log_dict[k] = sum_val / count
+            
+            log.info(f"Epoch {self.current_epoch}, Trajectory {trajectory_idx}: "
+                    f"Actor Loss: {avg_log_dict.get('actor_loss', 0):.4f}, "
+                    f"Critic Loss: {avg_log_dict.get('critic_loss', 0):.4f}, "
+                    f"Entropy: {avg_log_dict.get('entropy', 0):.4f}")
+            
+            # 重置日志字典
+            self.domain_transformation_log_dict = {}
 
 
     @torch.no_grad()
