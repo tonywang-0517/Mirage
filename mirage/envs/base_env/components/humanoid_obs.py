@@ -120,7 +120,7 @@ class HumanoidObs(BaseComponent):
             root_rot = current_state.rigid_body_rot[:, 0, :]
             root_vel = current_state.rigid_body_vel[:, 0, :]
             root_ang_vel = current_state.rigid_body_ang_vel[:, 0, :]
-            key_body_pos = current_state.rigid_body_pos[:, self.env.simulator.key_body_ids, :]
+            key_body_pos = current_state.rigid_body_pos[:, self.env.key_body_ids, :]
 
             obs = compute_humanoid_observations(
                 root_pos,
@@ -132,8 +132,9 @@ class HumanoidObs(BaseComponent):
                 key_body_pos,
                 ground_heights,
                 self.config.local_root_obs,
-                self.env.simulator.dof_obs_size,
+                self.env.simulator.robot_config.dof_obs_size,
                 self.env.simulator.get_dof_offsets(),
+                self.env.simulator.robot_config.joint_axis,
                 True,
             )
         self.body_contacts[:] = body_contacts

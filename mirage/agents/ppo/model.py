@@ -14,8 +14,8 @@ class PPOActor(nn.Module):
         )
         self.mu: MultiHeadedMLP = instantiate(self.config.mu_model, num_out=num_out)
 
-    def forward(self, input_dict):
-        mu = self.mu(input_dict)
+    def forward(self, input_dict, use_delta=False):
+        mu = self.mu(input_dict, use_delta)
         mu = torch.tanh(mu)
         std = torch.exp(self.logstd)
         dist = distributions.Normal(mu, std)
@@ -46,8 +46,8 @@ class PPOModel(nn.Module):
         neglogp = self.neglogp(action, dist.mean, std, logstd)
         return action, neglogp, value.flatten()
 
-    def act(self, input_dict: dict, mean: bool = True) -> torch.Tensor:
-        dist = self._actor(input_dict)
+    def act(self, input_dict: dict, mean: bool = True, use_delta = False) -> torch.Tensor:
+        dist = self._actor(input_dict, use_delta = use_delta)
         if mean:
             return dist.mean
         return dist.sample()

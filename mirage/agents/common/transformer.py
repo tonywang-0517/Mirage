@@ -63,6 +63,9 @@ class Transformer(nn.Module):
         if config.get("output_model", None) is not None:
             self.output_model = instantiate(config.output_model)
 
+        if config.get("delta_model", None) is not None:
+            self.delta_model = instantiate(config.delta_model)
+
     def get_extracted_features(self, input_dict):
         batch_size = next(iter(input_dict.values())).shape[0]
         device = next(iter(input_dict.values())).device
@@ -180,10 +183,10 @@ class Transformer(nn.Module):
 
         return output
 
-    def forward(self, input_dict):
-        output = self.get_extracted_features(input_dict)
+    def forward(self, input_dict, use_delta=False):
+        features = self.get_extracted_features(input_dict)
+        actions = self.output_model(features)
+        if use_delta:
+            actions = actions + self.delta_model(features, actions)
 
-        if self.config.get("output_model", None) is not None:
-            output = self.output_model(output)
-
-        return output
+        return actions

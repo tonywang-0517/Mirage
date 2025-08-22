@@ -62,6 +62,10 @@ class Simulator(ABC):
         self._dof_limits_upper_sim: torch.Tensor = None
         self._dof_limits_lower_common: torch.Tensor = None
         self._dof_limits_upper_common: torch.Tensor = None
+        self._dof_body_ids = self.robot_config.dof_body_ids
+        self._dof_offsets_common: List[int] = self._compute_dof_offsets(self.robot_config.dof_names)
+        self._dof_obs_size = self.robot_config.dof_obs_size
+        self._num_act = self.robot_config.number_of_actions
 
         self.user_requested_reset: bool = False
 
@@ -74,8 +78,37 @@ class Simulator(ABC):
         self._user_recording_video_path = os.path.join(
             "output/renderings", f"{self.config.experiment_name}-%s"
         )
+
         #add domain randomisation
         self._init_domain_rand_buffers()
+
+    def _compute_dof_offsets(self, dof_names: List[str]) -> List[int]:
+            """
+            Compute and return offsets where consecutive bodies' DOFs start.
+
+            Args:
+                dof_names (List[str]): List of DOF names.
+
+            Returns:
+                List[int]: A list of offsets indicating the start of each new set of DOFs.
+            """
+            dof_offsets: List[int] = []
+            previous_dof_name: str = "null"
+            for dof_offset, dof_name in enumerate(dof_names):
+                if dof_name[:-2] != previous_dof_name:  # remove the "_x/y/z"
+                    previous_dof_name = dof_name[:-2]
+                    dof_offsets.append(dof_offset)
+            dof_offsets.append(len(dof_names))
+            return dof_offsets
+
+    def get_dof_offsets(self) -> List[int]:
+            """
+            Return the pre-computed common DOF offsets.
+
+            Returns:
+                List[int]: DOF offsets.
+            """
+            return self._dof_offsets_common
 
     def _init_domain_rand_buffers(self):
         ######################################### DR related tensors #########################################

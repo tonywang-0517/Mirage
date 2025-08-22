@@ -30,6 +30,21 @@ class MLP(nn.Module):
             return self.mlp(input_dict)
         return self.mlp(input_dict[self.config.obs_key])
 
+class Delta_MLP(nn.Module):
+    def __init__(self, config, feature_in: int, action_in: int, num_out: int):
+        super().__init__()
+        self.config = config
+        num_in = feature_in + action_in
+        self.mlp = build_mlp(self.config, num_in, num_out)
+        self.action_ln = nn.LayerNorm(num_out)
+        self.scale = 0.1
+
+    def forward(self, features, action):
+        norm_action = self.action_ln(action)
+        action = self.mlp(torch.cat([features, norm_action], dim=-1))
+        delta_action = self.scale * action
+        return delta_action
+
 
 class MLP_WithNorm(NormObsBase):
     def __init__(self, config, num_in: int, num_out: int):

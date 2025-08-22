@@ -59,6 +59,23 @@ agent:
                       - units: 1024
                         activation: relu
                         use_layer_norm: false
+                delta_model:
+                  _target_: mirage.agents.common.mlp.Delta_MLP
+                  _recursive_: False
+                  num_out: ${robot.number_of_actions}
+                  feature_in: ${..transformer_token_size}
+                  action_in: ${robot.number_of_actions}
+                  config:
+                    layers:
+                      - units: 1024
+                        activation: relu
+                        use_layer_norm: false
+                      - units: 1024
+                        activation: relu
+                        use_layer_norm: false
+                      - units: 1024
+                        activation: relu
+                        use_layer_norm: false
 
         actor_optimizer:
           _target_: torch.optim.Adam
