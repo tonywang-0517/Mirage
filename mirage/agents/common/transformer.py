@@ -166,6 +166,8 @@ class Transformer(nn.Module):
                 )
             cat_mask.append(key_mask)
 
+        print(self.input_models)
+
         # Concatenate all the features
         cat_obs = torch.cat(cat_obs, dim=1)
         cat_mask = torch.cat(cat_mask, dim=1)
@@ -175,6 +177,7 @@ class Transformer(nn.Module):
 
         cur_mask = cat_mask.unsqueeze(1).expand(-1, cat_obs.shape[0], -1)
         cur_mask = torch.repeat_interleave(cur_mask, self.config.num_heads, dim=0)
+        print(cat_obs.shape)
         with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
             output = self.seqTransEncoder(cat_obs, mask=None if self.mask_keys[model_name] is None else cur_mask)[0]
 

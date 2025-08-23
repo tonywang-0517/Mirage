@@ -516,13 +516,13 @@ class Mimic(BaseEnv):
         super().user_reset()
         self.motion_manager.motion_times[:] = 1e6
 
-    def reset(self, env_ids=None):
+    def reset(self, env_ids=None, motion_ids=None, motion_times=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
         if len(env_ids) > 0:
             if self.config.masked_mimic.enabled:
                 self.masked_mimic_obs_cb.reset_track(env_ids)
-        return super().reset(env_ids)
+        return super().reset(env_ids, motion_ids, motion_times)
 
     def residual_actions_to_actual(
         self,

@@ -369,7 +369,7 @@ class BaseEnv:
 
         return new_states
 
-    def reset(self, env_ids=None):
+    def reset(self, env_ids=None, motion_ids=None, motion_times=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
         if len(env_ids) > 0:
@@ -388,7 +388,7 @@ class BaseEnv:
                 reset_ref_motion_times = []
             elif self.state_init == self.StateInit.Data:
                 new_states, motion_ids, motion_times = self.reset_ref_state_init(
-                    env_ids
+                    env_ids, motion_ids=motion_ids, motion_times=motion_times
                 )
                 reset_default_env_ids = []
                 reset_ref_env_ids = env_ids
