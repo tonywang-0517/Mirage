@@ -10,6 +10,14 @@ defaults:
   - /agent/mimic/models/mlp_critic_target_pose
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
+  # To enable historical_self_obs_with_actions (transformer-only feature), uncomment the following line:
+  - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
+  # 
+  # Usage:
+  # 1. To enable: uncomment the line above (enabled flag is automatically set to True)
+  # 2. To disable: comment out the line above (enabled flag remains False in base config)
+  # 
+  # NOTE: This feature is ONLY supported for transformer-based actors, not for MLP actors or critics.
 
 env:
   config:

@@ -24,6 +24,28 @@ class HumanoidObs(BaseComponent):
             shape=(self.config.obs_size,),
             device=self.env.device,
         )
+        self.humanoid_action_hist_buf = HistoryBuffer(
+            self.config.num_historical_steps,
+            self.env.num_envs,
+            shape=(self.env.config.robot.number_of_actions,),
+            device=self.env.device,
+        )
+
+        # Initialize historical_self_obs_with_actions if enabled
+        self.historical_self_obs_with_actions = None
+        self.step_count = 0
+
+        if self.config.historical_self_obs_with_actions.enabled:
+            # Store as [num_envs, max_num_historical_steps, obs_per_step]
+            obs_per_step = self.config.obs_size + self.env.config.robot.number_of_actions + (1 if self.config.historical_self_obs_with_actions.with_time else 0)
+            self.historical_self_obs_with_actions = torch.zeros(
+                self.env.num_envs,
+                self.config.historical_self_obs_with_actions.max_num_historical_steps,
+                obs_per_step,
+                dtype=torch.float,
+                device=self.env.device,
+            )
+
         body_names = self.env.config.robot.body_names
         num_bodies = len(body_names)
         self.body_contacts = torch.zeros(
@@ -36,10 +58,37 @@ class HumanoidObs(BaseComponent):
 
     def post_physics_step(self):
         self.humanoid_obs_hist_buf.rotate()
+        self.humanoid_action_hist_buf.rotate()
+
+        # Increment step counter, but cap at max history steps
+        if self.config.historical_self_obs_with_actions.enabled:
+            self.step_count = min(self.step_count + 1, self.config.historical_self_obs_with_actions.max_num_historical_steps)
+
+    def set_current_actions(self, actions, env_ids=None):
+        """Set the current actions in the action history buffer"""
+        if env_ids is None:
+            env_ids = torch.arange(self.env.num_envs, device=self.env.device, dtype=torch.long)
+        self.humanoid_action_hist_buf.set_curr(actions, env_ids)
 
     def reset_envs(self, env_ids, reset_default_env_ids, reset_ref_env_ids, reset_ref_motion_ids, reset_ref_motion_times):
         if self.config.num_historical_steps > 1:
             self.reset_hist_buf(env_ids, reset_default_env_ids, reset_ref_env_ids, reset_ref_motion_ids, reset_ref_motion_times)
+
+        # Reset step counter when environments are reset
+        if self.config.historical_self_obs_with_actions.enabled:
+            self.step_count = 0
+
+    def _reset_action_history(self, env_ids):
+        """Helper method to reset action history with zeros"""
+        zero_actions = torch.zeros(
+            len(env_ids),
+            self.env.config.robot.number_of_actions,
+            device=self.env.device
+        )
+        self.humanoid_action_hist_buf.set_hist(
+            zero_actions.unsqueeze(0).expand(self.config.num_historical_steps - 1, -1, -1),
+            env_ids
+        )
 
     def reset_hist_buf(self, env_ids, reset_default_env_ids, reset_ref_env_ids, reset_ref_motion_ids, reset_ref_motion_times):
         if len(reset_default_env_ids) > 0:
@@ -56,6 +105,7 @@ class HumanoidObs(BaseComponent):
         self.humanoid_obs_hist_buf.set_hist(
             self.humanoid_obs_hist_buf.get_current(env_ids), env_ids=env_ids
         )
+        self._reset_action_history(env_ids)
 
     def reset_hist_ref(self, env_ids, motion_ids, motion_times):
         dt = self.env.dt
@@ -92,6 +142,8 @@ class HumanoidObs(BaseComponent):
             ).permute(1, 0, 2),
             env_ids,
         )
+
+        self._reset_action_history(env_ids)
 
     def compute_observations(self, env_ids):
         current_state = self.env.simulator.get_bodies_state(env_ids)
@@ -140,6 +192,46 @@ class HumanoidObs(BaseComponent):
         self.humanoid_obs[env_ids] = obs
         self.humanoid_obs_hist_buf.set_curr(obs, env_ids)
 
+        # Compute historical_self_obs_with_actions if enabled
+        if self.config.historical_self_obs_with_actions.enabled:
+            self.compute_historical_self_obs_with_actions(env_ids)
+
+    def compute_historical_self_obs_with_actions(self, env_ids):
+        """Compute historical self observations with actions concatenated"""
+        # Get the actual number of steps available
+        actual_steps = min(self.step_count, self.config.historical_self_obs_with_actions.max_num_historical_steps)
+
+        # Initialize the sequence with zeros
+        self.historical_self_obs_with_actions[env_ids] = 0
+
+        if actual_steps == 0:
+            return  # No history available
+
+        # Get historical observations and actions for the actual steps available
+        # Note: obs[i] corresponds to the state BEFORE action[i] was executed
+        hist_obs_data = self.humanoid_obs_hist_buf.get_all(env_ids)[:actual_steps]
+        hist_action_data = self.humanoid_action_hist_buf.get_all(env_ids)[:actual_steps]
+
+        # Add time embeddings if enabled
+        config = self.config.historical_self_obs_with_actions
+        if config.with_time:
+            data_steps = hist_obs_data.shape[0]
+            # Use simple time offsets like historical_self_obs (negative times)
+            time_offsets = -self.env.dt * torch.arange(data_steps, device=self.env.device, dtype=torch.float)
+            time_embeddings = time_offsets.unsqueeze(1).expand(-1, hist_obs_data.shape[1]).unsqueeze(-1)
+
+            # Concatenate obs, actions, and time for each step
+            hist_obs_with_time = torch.cat([hist_obs_data, hist_action_data, time_embeddings], dim=-1)
+
+            # Store in sequence format: [envs, steps, obs_per_step]
+            self.historical_self_obs_with_actions[env_ids, :data_steps] = hist_obs_with_time.permute(1, 0, 2)
+        else:
+            # Concatenate obs and actions for each step
+            hist_combined = torch.cat([hist_obs_data, hist_action_data], dim=-1)
+
+            # Store in sequence format: [envs, steps, obs_per_step]
+            self.historical_self_obs_with_actions[env_ids, :actual_steps] = hist_combined.permute(1, 0, 2)
+
     def build_self_obs_demo(
         self, motion_ids: Tensor, motion_times0: Tensor, num_steps: int
     ):
@@ -171,8 +263,16 @@ class HumanoidObs(BaseComponent):
         return obs_demo
 
     def get_obs(self):
-        return {
+        obs_dict = {
             "self_obs": self.humanoid_obs.clone(),
             "historical_self_obs": self.humanoid_obs_hist_buf.get_all_flattened().clone(),
-            "historical_self_obs_with_actions": self.humanoid_obs_hist_buf.get_all_flattened().clone(),
+            "historical_actions": self.humanoid_action_hist_buf.get_all_flattened().clone(),
         }
+
+        # Add historical_self_obs_with_actions if enabled
+        if self.config.historical_self_obs_with_actions.enabled:
+            # Always return fixed length tensor, but only use meaningful data
+            # The rest is zero-padded and will be handled by transformer
+            obs_dict["historical_self_obs_with_actions"] = self.historical_self_obs_with_actions.reshape(self.env.num_envs, -1)
+
+        return obs_dict

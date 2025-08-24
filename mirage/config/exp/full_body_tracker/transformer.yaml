@@ -13,6 +13,12 @@ defaults:
   - /agent/ppo/models/mlp_critic_terrain
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
+  # To enable historical_self_obs_with_actions, uncomment the following line:
+  # - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
+  # 
+  # Usage:
+  # 1. To enable: uncomment the line above and set enabled: True in env.config.humanoid_obs.historical_self_obs_with_actions
+  # 2. To disable: comment out the line above and set enabled: False in env.config.humanoid_obs.historical_self_obs_with_actions
 
 env:
   config:
