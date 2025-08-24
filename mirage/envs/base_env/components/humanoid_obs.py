@@ -24,12 +24,6 @@ class HumanoidObs(BaseComponent):
             shape=(self.config.obs_size,),
             device=self.env.device,
         )
-        self.humanoid_action_hist_buf = HistoryBuffer(
-            self.config.robot.number_of_actions,
-            self.env.num_envs,
-            shape=(self.config.obs_size,),
-            device=self.env.device,
-        )
         body_names = self.env.config.robot.body_names
         num_bodies = len(body_names)
         self.body_contacts = torch.zeros(
@@ -180,6 +174,5 @@ class HumanoidObs(BaseComponent):
         return {
             "self_obs": self.humanoid_obs.clone(),
             "historical_self_obs": self.humanoid_obs_hist_buf.get_all_flattened().clone(),
-            "historical_actions": self.humanoid_action_hist_buf.get_all_flattened().clone(),
             "historical_self_obs_with_actions": self.humanoid_obs_hist_buf.get_all_flattened().clone(),
         }

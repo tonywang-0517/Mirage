@@ -1,6 +1,6 @@
 # @package _global_
 
-num_envs: 1024
+num_envs: 128
 agent:
   _target_: mirage.agents.ppo.agent.PPO
   _recursive_: False
