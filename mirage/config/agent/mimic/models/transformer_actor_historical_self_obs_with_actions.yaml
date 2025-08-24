@@ -65,3 +65,7 @@ env:
     humanoid_obs:
       historical_self_obs_with_actions:
         enabled: True
+        max_num_historical_steps: 8
+        with_time: True
+        num_obs_per_step: ${eval:${robot.self_obs_size}+${robot.number_of_actions}+1*${.with_time}}
+
