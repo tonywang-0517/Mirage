@@ -255,8 +255,9 @@ class BaseEnv:
                 actions.abs() == clamp_actions
             ).sum() / actions.numel()
 
-        # Store current actions in the action history buffer
-        self.self_obs_cb.set_current_actions(actions)
+        # Store current actions in the action history buffer if enabled
+        if self.self_obs_cb.config.historical_self_obs_with_actions.enabled:
+            self.self_obs_cb.set_current_actions(actions)
 
         markers_state = self.get_markers_state()
         self.simulator.step(actions, markers_state)
