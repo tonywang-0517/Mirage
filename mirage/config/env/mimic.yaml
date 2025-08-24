@@ -69,6 +69,9 @@ env:
     humanoid_obs:
       historical_self_obs_with_actions:
         enabled: False
+        max_num_historical_steps: ${env.config.humanoid_obs.num_historical_steps}
+        with_time: True
+        num_obs_per_step: ${eval:${robot.self_obs_size}+${robot.number_of_actions}+1*${.with_time}}
 
     masked_mimic:
       enabled: false

@@ -24,18 +24,21 @@ class HumanoidObs(BaseComponent):
             shape=(self.config.obs_size,),
             device=self.env.device,
         )
-        self.humanoid_action_hist_buf = HistoryBuffer(
-            self.config.num_historical_steps,
-            self.env.num_envs,
-            shape=(self.env.config.robot.number_of_actions,),
-            device=self.env.device,
-        )
 
-        # Initialize historical_self_obs_with_actions if enabled
+        # Initialize historical_self_obs_with_actions related buffers if enabled
         self.historical_self_obs_with_actions = None
+        self.humanoid_action_hist_buf = None
         self.step_count = 0
 
         if self.config.historical_self_obs_with_actions.enabled:
+            # Initialize action history buffer with num_historical_steps (same as obs buffer)
+            self.humanoid_action_hist_buf = HistoryBuffer(
+                self.config.num_historical_steps,
+                self.env.num_envs,
+                shape=(self.env.config.robot.number_of_actions,),
+                device=self.env.device,
+            )
+            
             # Store as [num_envs, max_num_historical_steps, obs_per_step]
             obs_per_step = self.config.obs_size + self.env.config.robot.number_of_actions + (1 if self.config.historical_self_obs_with_actions.with_time else 0)
             self.historical_self_obs_with_actions = torch.zeros(
@@ -221,7 +224,7 @@ class HumanoidObs(BaseComponent):
         config = self.config.historical_self_obs_with_actions
         if config.with_time:
             data_steps = hist_obs_data.shape[0]
-            # Use simple time offsets like historical_self_obs (negative times)
+            # Use simple time offsets like historical_self_obs (negative times, starting from 0)
             time_offsets = -self.env.dt * torch.arange(data_steps, device=self.env.device, dtype=torch.float)
             time_embeddings = time_offsets.unsqueeze(1).expand(-1, hist_obs_data.shape[1]).unsqueeze(-1)
 
