@@ -11,7 +11,7 @@ defaults:
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
   # To enable historical_self_obs_with_actions (transformer-only feature), uncomment the following line:
-  - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
+  #- /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
   # 
   # Usage:
   # 1. To enable: uncomment the line above (enabled flag is automatically set to True)

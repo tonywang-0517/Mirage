@@ -201,7 +201,11 @@ class PPO:
     # Experience Buffer and Training Loop
     # -----------------------------
     def register_extra_experience_buffer_keys(self):
-        pass
+        # Register historical_actions only if historical_self_obs_with_actions is enabled
+        if self.env.config.humanoid_obs.historical_self_obs_with_actions.enabled:
+            self.experience_buffer.register_key(
+                "historical_actions", shape=(self.env.config.robot.number_of_actions * self.env.config.humanoid_obs.num_historical_steps,)
+            )
 
     def fit(self):
         # Setup experience buffer
@@ -256,6 +260,11 @@ class PPO:
                 ):
                     obs = self.handle_reset(done_indices)
                     self.experience_buffer.update_data("self_obs", step, obs["self_obs"])
+                    
+                    # Update historical_actions if enabled
+                    if self.env.config.humanoid_obs.historical_self_obs_with_actions.enabled:
+                        self.experience_buffer.update_data("historical_actions", step, obs["historical_actions"])
+                    
                     if self.config.get("extra_inputs", None) is not None:
                         for key in self.config.extra_inputs:
                             self.experience_buffer.update_data(key, step, obs[key])

@@ -58,10 +58,11 @@ class HumanoidObs(BaseComponent):
 
     def post_physics_step(self):
         self.humanoid_obs_hist_buf.rotate()
-        self.humanoid_action_hist_buf.rotate()
-
-        # Increment step counter, but cap at max history steps
+        
+        # Only rotate action buffer if enabled
         if self.config.historical_self_obs_with_actions.enabled:
+            self.humanoid_action_hist_buf.rotate()
+            # Increment step counter, but cap at max history steps
             self.step_count = min(self.step_count + 1, self.config.historical_self_obs_with_actions.max_num_historical_steps)
 
     def set_current_actions(self, actions, env_ids=None):
@@ -105,7 +106,9 @@ class HumanoidObs(BaseComponent):
         self.humanoid_obs_hist_buf.set_hist(
             self.humanoid_obs_hist_buf.get_current(env_ids), env_ids=env_ids
         )
-        self._reset_action_history(env_ids)
+        # Only reset action history if enabled
+        if self.config.historical_self_obs_with_actions.enabled:
+            self._reset_action_history(env_ids)
 
     def reset_hist_ref(self, env_ids, motion_ids, motion_times):
         dt = self.env.dt
@@ -143,7 +146,9 @@ class HumanoidObs(BaseComponent):
             env_ids,
         )
 
-        self._reset_action_history(env_ids)
+        # Only reset action history if enabled
+        if self.config.historical_self_obs_with_actions.enabled:
+            self._reset_action_history(env_ids)
 
     def compute_observations(self, env_ids):
         current_state = self.env.simulator.get_bodies_state(env_ids)
@@ -266,11 +271,11 @@ class HumanoidObs(BaseComponent):
         obs_dict = {
             "self_obs": self.humanoid_obs.clone(),
             "historical_self_obs": self.humanoid_obs_hist_buf.get_all_flattened().clone(),
-            "historical_actions": self.humanoid_action_hist_buf.get_all_flattened().clone(),
         }
 
-        # Add historical_self_obs_with_actions if enabled
+        # Add historical_actions and historical_self_obs_with_actions only if enabled
         if self.config.historical_self_obs_with_actions.enabled:
+            obs_dict["historical_actions"] = self.humanoid_action_hist_buf.get_all_flattened().clone()
             # Always return fixed length tensor, but only use meaningful data
             # The rest is zero-padded and will be handled by transformer
             obs_dict["historical_self_obs_with_actions"] = self.historical_self_obs_with_actions.reshape(self.env.num_envs, -1)
