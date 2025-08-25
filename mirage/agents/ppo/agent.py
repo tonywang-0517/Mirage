@@ -3,6 +3,7 @@ import os
 import logging
 
 from torch import Tensor
+import torch.nn.functional as F
 
 import time
 import math
@@ -22,6 +23,7 @@ from mirage.agents.common.common import weight_init, get_params
 from mirage.envs.base_env.env import BaseEnv
 from mirage.utils.running_mean_std import RunningMeanStd
 from rich.progress import track
+from tqdm import tqdm
 from mirage.agents.ppo.utils import discount_values, bounds_loss
 
 log = logging.getLogger(__name__)
@@ -121,8 +123,12 @@ class PPO:
 
         self.best_evaluated_score = state_dict.get("best_evaluated_score", None)
 
-        self.model.load_state_dict(state_dict["model"])
-        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        self.model.load_state_dict(state_dict["model"], strict=False)
+        try:
+            self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        except ValueError as e:
+            print(f"[optimizer] load_state_dict failed: {e}")
+
         self.critic_optimizer.load_state_dict(state_dict["critic_optimizer"])
 
         if self.config.normalize_values:
@@ -179,6 +185,9 @@ class PPO:
 
         # Check if new high score flag is consistent across devices.
         gathered_high_score = self.fabric.all_gather(new_high_score)
+        # 处理单设备情况
+        if isinstance(gathered_high_score, torch.Tensor) and gathered_high_score.dim() == 0:
+            gathered_high_score = [gathered_high_score.item()]
         assert all(
             [x == gathered_high_score[0] for x in gathered_high_score]
         ), "New high score flag should be the same across all ranks."
@@ -575,13 +584,247 @@ class PPO:
         step = 0
         while self.config.max_eval_steps is None or step < self.config.max_eval_steps:
             obs = self.handle_reset(done_indices)
-            # Obtain actor predictions
             actions = self.model.act(obs)
             # Step the environment
             obs, rewards, dones, terminated, extras = self.env_step(actions)
             all_done_indices = dones.nonzero(as_tuple=False)
             done_indices = all_done_indices.squeeze(-1)
             step += 1
+
+
+    def domain_transformation_fit(self):
+        """Domain Transformation 单步强化学习训练"""
+        log.info("开始 Domain Transformation 训练...")
+        
+        # ===== 初始化阶段 =====
+        # 冻结参数
+        for name, param in self.model._actor.mu.named_parameters():
+            param.requires_grad = name.startswith('delta_model')
+        self.model._actor.logstd.requires_grad = False
+        
+        # 冻结观察标准化器
+        for module in self.model._actor.mu.modules():
+            if hasattr(module, 'running_obs_norm'):
+                module.running_obs_norm.eval()
+        
+        # 设置环境
+        self.env.sync_motion_times = torch.zeros_like(self.env.motion_manager.motion_times)
+        self.env.sync_motion_just_reset = torch.ones(self.num_envs, device=self.device, dtype=torch.bool)
+        self._original_decimation = self.env.config.simulator.config.sim.decimation
+        self.env.config.simulator.config.sim.decimation = 1
+        self.env.sync_motion_dt = self._original_decimation / self.env.config.simulator.config.sim.fps
+        
+        # 设置优化器 - 只优化 delta_model 参数
+        current_lr = self.actor_optimizer.param_groups[0]['lr']
+        # 重新创建优化器，只包含 delta_model 参数
+        delta_params = list(self.model._actor.mu.delta_model.parameters())
+        self.actor_optimizer = instantiate(
+            self.config.model.config.actor_optimizer,
+            params=delta_params,
+        )
+        for param_group in self.actor_optimizer.param_groups:
+            param_group['lr'] = current_lr * 1  # 降低学习率，避免震荡
+            param_group['weight_decay'] = 0.0  # 移除权重衰减
+        
+        # 加载检查点
+        model_checkpoint_path = Path.cwd() / "results" / "domain_transformation_model.ckpt"
+        if model_checkpoint_path.exists():
+            try:
+                checkpoint = torch.load(model_checkpoint_path, map_location=self.device, weights_only=False)
+                self.domain_transformation_step = checkpoint.get('delta_training_step', 0)
+                self.model.load_state_dict(checkpoint["model"], strict=False)
+                print(f"成功加载 delta model checkpoint，从步骤 {self.domain_transformation_step} 开始")
+            except Exception as e:
+                print(f"加载 checkpoint 失败，使用默认值: {e}")
+                self.domain_transformation_step = 0
+        else:
+            self.domain_transformation_step = 0
+        
+        # 加载轨迹数据
+        data_path = Path.cwd() / "data" / "domain_transformation" / "data.pt"
+        trajectories = torch.load(data_path)
+        log.info(f"开始训练，共 {len(trajectories)} 条轨迹")
+        
+        # ===== 训练阶段 =====
+        total_epochs, batch_size = 20, 32  # 增加 batch_size 提高梯度估计稳定性
+        start_trajectory_idx = self.domain_transformation_step % len(trajectories)
+        remaining_trajectories = trajectories[start_trajectory_idx:]
+        
+        # 预计算固定值（移出循环提升性能）
+        logstd = self.model._actor.logstd
+        std = torch.exp(logstd)
+        
+        # 创建进度条
+        total_iterations = total_epochs * len(remaining_trajectories)
+        training_pbar = tqdm(total=total_iterations, desc=f"Domain Transformation Training (Step {self.domain_transformation_step})")
+        
+        # 训练循环
+        for epoch in range(total_epochs):
+            collected_rewards, collected_logps, collected_actions = [], [], []
+            
+            for i, trajectory in enumerate(remaining_trajectories):
+                trajectory_idx = start_trajectory_idx + i
+                
+                # 更新进度条
+                training_pbar.set_description(f"Domain Transformation Training (Step {self.domain_transformation_step}) [Epoch {epoch+1}/{total_epochs}] Trajectory {trajectory_idx+1}/{len(trajectories)}")
+                training_pbar.update(1)
+                
+                # 环境重置
+                with torch.no_grad():
+                    env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+                    ref_state = self.env.motion_lib.get_motion_state(
+                        trajectory["motion_ids"].expand(self.num_envs),
+                        trajectory["motion_times"].expand(self.num_envs),
+                    )
+                    # 清零速度
+                    for attr in ['root_vel', 'root_ang_vel', 'dof_vel', 'rigid_body_vel', 'rigid_body_ang_vel']:
+                        setattr(ref_state, attr, getattr(ref_state, attr) * 0)
+                    self.env.simulator.reset_envs(ref_state, env_ids)
+                    obs_rec = trajectory["obs"]
+                
+                # 获取动作和奖励
+                self.train()
+                dist = self.model._actor(obs_rec, use_delta=True)
+                actions = dist.sample()  # 使用随机采样获得真实动作
+                
+                next_obs_live, _, _, _, _ = self.env_step(actions)
+                
+                # 计算奖励
+                next_self_rec = trajectory["next_obs"]["self_obs"].to(self.device)
+                next_self_live = next_obs_live["self_obs"]
+                mse = (next_self_rec - next_self_live).pow(2).mean(dim=-1)
+                
+                # 动态缩放：根据训练进度调整缩放因子
+                # 训练初期使用较大缩放，后期使用较小缩放
+                scale = 0.5  # 中期：中等缩放
+
+                
+                # 基础奖励
+                base_reward = mse.mul(-scale).exp()
+                
+                # 添加基线奖励，避免奖励过小
+                baseline = 0.1
+                rewards = base_reward + baseline
+                
+                # 计算log概率
+                neglogp = self.model.neglogp(actions, dist.mean, std, logstd)
+                logp = -neglogp
+                
+                # 收集样本
+                collected_rewards.append(rewards.detach())
+                collected_logps.append(logp)
+                collected_actions.append(actions.detach())
+                
+                # 批量训练
+                if len(collected_rewards) >= batch_size:
+                    print(f"\n=== 开始 Batch 训练 (Step {self.domain_transformation_step + 1}) ===")
+                    print(f"收集到 {len(collected_rewards)} 个轨迹样本，开始batch训练")
+                    
+                    # 准备批次数据
+                    batch_rewards = torch.stack(collected_rewards)
+                    batch_logps = torch.stack(collected_logps)
+                    batch_actions = torch.stack(collected_actions)
+                    
+                    # 计算优势函数 - 改进归一化策略
+                    batch_advantages = batch_rewards - batch_rewards.mean()
+                    
+                    # 动态归一化阈值：根据训练进度调整
+
+                    norm_threshold = 0.01   # 后期：更严格的归一化
+                    
+                    # 只有当标准差足够大时才归一化，避免过度归一化
+                    if batch_rewards.std() > norm_threshold:
+                        batch_advantages = batch_advantages / (batch_rewards.std() + 1e-8)
+                    
+                    print(f"Batch 统计: rewards 均值: {batch_rewards.mean().item():.6f}, 标准差: {batch_rewards.std().item():.6f}, scale: {scale:.2f}")
+                    
+                    # 计算损失并反向传播
+                    with self.fabric.autocast():
+                        batch_actor_loss = -(batch_advantages * batch_logps).mean()
+                    
+                    self.actor_optimizer.zero_grad(set_to_none=True)
+                    self.fabric.backward(batch_actor_loss)
+                    
+                    # 梯度裁剪 - 优化器已经只包含 delta_model 参数
+                    torch.nn.utils.clip_grad_norm_(self.actor_optimizer.param_groups[0]['params'], max_norm=1.0)
+                    
+                    actor_grad_clip = self.handle_model_grad_clipping(self.model._actor, self.actor_optimizer, "actor")
+                    self.actor_optimizer.step()
+                    
+                    # 记录日志
+                    training_log_dict = {
+                        "actor_loss": batch_actor_loss.detach(),
+                        "delta_model_reward": batch_rewards.mean().detach(),
+                    }
+                    training_log_dict.update(actor_grad_clip)
+                    
+                    log_dict = {
+                        "domain_transformation/actor_loss": training_log_dict['actor_loss'],
+                        "domain_transformation/delta_model_reward": training_log_dict['delta_model_reward'],
+                    }
+                    self.fabric.log_dict(log_dict, step=self.domain_transformation_step)
+                    
+                    self.domain_transformation_step += 1
+                    print(f"=== Batch 训练完成 ===\n")
+                    
+                    # 清空收集的样本
+                    collected_rewards, collected_logps, collected_actions = [], [], []
+            
+            # 保存检查点
+            model_save_path = Path.cwd() / "results" / "domain_transformation_model.ckpt"
+            model_save_path.parent.mkdir(parents=True, exist_ok=True)
+            state_dict = self.get_state_dict({})
+            state_dict.update({
+                'delta_training_step': self.domain_transformation_step,  # 修复：不重复 +1
+                'delta_training_timestamp': time.time()
+            })
+            torch.save(state_dict, model_save_path)
+            print(f"保存 delta model checkpoint 到步骤 {self.domain_transformation_step + 1} (Epoch {epoch+1} 完成)")
+            self.save()
+        
+        # ===== 完成阶段 =====
+        training_pbar.close()
+        self.save()
+        log.info("Domain Transformation 训练完成")
+    
+
+    @torch.no_grad()
+    def target_domain_data_collection(self):
+       #self.eval()
+
+        self.env.sync_motion_times = torch.zeros_like(self.env.motion_manager.motion_times)
+        self.env.sync_motion_just_reset = torch.ones(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
+        decimation = self.env.config.simulator.config.sim.decimation
+        self.env.config.simulator.config.sim.decimation = 1
+        self.env.sync_motion_dt = decimation / self.env.config.simulator.config.sim.fps
+        trajectories = []
+        max_eval_epoch = 1
+        for _ in range(max_eval_epoch):
+            step = 0
+            while self.env.sync_motion_times < self.env.motion_lib.state.motion_lengths[self.env.motion_manager.motion_ids]:
+                motion_ids = self.env.motion_manager.motion_ids
+                motion_times = self.env.sync_motion_times
+                self.env.sync_motion()
+                self.env.compute_observations()
+                obs = self.env.get_obs()
+                actions = self.model.act(obs)
+                # Step the environment
+                next_obs, rewards, dones, terminated, extras = self.env_step(actions)
+                trajectories.append({
+                    "motion_ids": motion_ids,
+                    "motion_times": motion_times,
+                    "obs": obs,
+                    "actions": actions,
+                    "next_obs": next_obs,
+                })
+                print(f'collect motion_id: {motion_ids[0].item()}, current_step:{step}, total_step: {(self.env.motion_lib.state.motion_lengths[self.env.motion_manager.motion_ids][0].item()//self.env.sync_motion_dt)}')
+                step += 1
+            self.env.sync_motion()
+
+        torch.save(trajectories, Path.cwd()/"data"/"domain_transformation"/"data.pt")
+        print('data saved')
 
     def post_epoch_logging(self, training_log_dict: Dict):
         end_time = time.time()
