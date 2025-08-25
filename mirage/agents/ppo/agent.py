@@ -790,41 +790,56 @@ class PPO:
 
     @torch.no_grad()
     def target_domain_data_collection(self):
-       #self.eval()
-
-        self.env.sync_motion_times = torch.zeros_like(self.env.motion_manager.motion_times)
-        self.env.sync_motion_just_reset = torch.ones(
-            self.num_envs, device=self.device, dtype=torch.bool
+        """收集64个env并行推理120帧的状态数据，保存为motion文件"""
+        self.eval()
+        
+        # 设置录制参数
+        num_frames = 120
+        num_envs = self.num_envs
+        
+        print(f"开始收集 {num_envs} 个env的 {num_frames} 帧motion数据...")
+        
+        # 初始化录制器
+        from mirage.utils.motion_recorder import BatchMotionRecorder
+        recorder = BatchMotionRecorder(
+            simulator=self.env.simulator,
+            num_envs=num_envs,
+            num_frames=num_frames
         )
-        decimation = self.env.config.simulator.config.sim.decimation
-        self.env.config.simulator.config.sim.decimation = 1
-        self.env.sync_motion_dt = decimation / self.env.config.simulator.config.sim.fps
-        trajectories = []
-        max_eval_epoch = 1
-        for _ in range(max_eval_epoch):
-            step = 0
-            while self.env.sync_motion_times < self.env.motion_lib.state.motion_lengths[self.env.motion_manager.motion_ids]:
-                motion_ids = self.env.motion_manager.motion_ids
-                motion_times = self.env.sync_motion_times
-                self.env.sync_motion()
-                self.env.compute_observations()
-                obs = self.env.get_obs()
-                actions = self.model.act(obs)
-                # Step the environment
-                next_obs, rewards, dones, terminated, extras = self.env_step(actions)
-                trajectories.append({
-                    "motion_ids": motion_ids,
-                    "motion_times": motion_times,
-                    "obs": obs,
-                    "actions": actions,
-                    "next_obs": next_obs,
-                })
-                print(f'collect motion_id: {motion_ids[0].item()}, current_step:{step}, total_step: {(self.env.motion_lib.state.motion_lengths[self.env.motion_manager.motion_ids][0].item()//self.env.sync_motion_dt)}')
-                step += 1
-            self.env.sync_motion()
-
-        torch.save(trajectories, Path.cwd()/"data"/"domain_transformation"/"data.pt")
-        print('data saved')
+        
+        # 重置环境
+        self.env.reset()
+        
+        # 收集120帧数据
+        for frame in range(num_frames):
+            # 计算观察
+            self.env.compute_observations()
+            obs = self.env.get_obs()
+            
+            # 模型推理
+            actions = self.model.act(obs)
+            
+            # 环境步进
+            self.env_step(actions)
+            # 记录当前帧
+            if not recorder.record_frame():
+                print(f"录制在第 {frame} 帧停止")
+                break
+            print(f"收集进度: {frame+1}/{num_frames}")
+        
+        # 保存motion数据
+        # 从motion_file路径中提取文件名
+        motion_file = self.env.config.motion_lib.motion_file
+        motion_name = Path(motion_file).stem  # 获取不带扩展名的文件名
+        output_path = Path.cwd() / "data" / "collected_motions" / f"{motion_name}.pt"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 保存为pt格式（包含所有env的数据）
+        success = recorder.save_motions_as_pt_format(str(output_path))
+        if success:
+            print(f"Motion数据收集完成，保存到: {output_path}")
+        else:
+            print("保存失败")
 
     def post_epoch_logging(self, training_log_dict: Dict):
         end_time = time.time()

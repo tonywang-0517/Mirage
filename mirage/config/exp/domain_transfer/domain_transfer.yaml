@@ -19,4 +19,4 @@ env:
     mimic_target_pose:
       type: max-coords-future-rel
       with_time: true
-      num_future_steps: 15
+      num_future_steps: 4
