@@ -43,6 +43,8 @@ agent:
                         - units: 256
                           activation: relu
                           use_layer_norm: false
+                  # Add historical_self_obs_with_actions as an additional input (if enabled)
+                  historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
                 output_model:
                   _target_: mirage.agents.common.mlp.MLP
                   _recursive_: False
