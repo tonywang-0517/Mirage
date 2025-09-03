@@ -14,7 +14,7 @@ defaults:
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
   # To enable historical_self_obs_with_actions, uncomment the following line:
-  # - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
+  - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
   # 
   # Usage:
   # 1. To enable: uncomment the line above and set enabled: True in env.config.humanoid_obs.historical_self_obs_with_actions
@@ -26,3 +26,5 @@ env:
       type: max-coords-future-rel
       with_time: true
       num_future_steps: 4
+
+python mirage/train_agent.py +exp=masked_mimic/flat_terrain +robot=g1 +simulator=isaaclab  +experiment_name=masked_mimic_g1_walk motion_file=data/motions/g1_walk.npy  ++headless=true agent.config.expert_model_path=results/g1_walk_DR_action

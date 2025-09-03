@@ -1,6 +1,9 @@
 import torch
-
+import os
+from mirage.global_config import Config
 from mirage.envs.base_env.components.base_component import BaseComponent
+from mirage.utils.motion_lib import MotionLib
+from mirage.utils.motion_lib_h1 import H1_MotionLib
 
 from mirage.envs.mimic.mimic_utils import (
     build_max_coords_target_poses,
@@ -29,6 +32,9 @@ class MimicObs(BaseComponent):
             )
         else:
             self.mimic_target_poses = None
+        
+        # 缓存 DR action 模式的 MotionLib 实例
+        self._dr_motion_lib = None
 
     def compute_observations(self, env_ids):
         if self.config.mimic_phase_obs.enabled:
@@ -61,22 +67,65 @@ class MimicObs(BaseComponent):
             * self.env.dt
         )
 
-        raw_future_times = self.env.motion_manager.motion_times[env_ids].unsqueeze(
-            -1
-        ) + time_offsets.unsqueeze(0)
-        motion_ids = (
-            self.env.motion_manager.motion_ids[env_ids]
-            .unsqueeze(-1)
-            .tile([1, num_future_steps])
-        )
+        if Config.use_delta and not Config.freeze_delta:
+            # DR action mode: 从 data/motions/{file_name} 读取 motion state
+            if self._dr_motion_lib is None:
+                self._dr_motion_lib = self._create_dr_motion_lib()
+            
+
+            
+            # DR mode 使用固定的 motion_id=0
+            motion_ids = torch.zeros(env_ids.shape[0], num_future_steps, dtype=torch.long, device=self.env.device)
+        else:
+            # Normal mode: 使用原有的 motion_ids
+            motion_ids = (
+                self.env.motion_manager.motion_ids[env_ids]
+                .unsqueeze(-1)
+                .tile([1, num_future_steps])
+            )
+        
+        # 统一的时间计算逻辑，与奖励计算保持一致
+        raw_future_times = self.env.motion_manager.motion_times[env_ids].unsqueeze(-1) + time_offsets.unsqueeze(0)
+        
+        # 统一的时间计算逻辑
         flat_ids = motion_ids.view(-1)
-
-        lengths = self.env.motion_lib.get_motion_length(flat_ids)
+        motion_lib = self._dr_motion_lib if Config.use_delta and not Config.freeze_delta else self.env.motion_lib
+        lengths = motion_lib.get_motion_length(flat_ids)
         flat_times = torch.minimum(raw_future_times.view(-1), lengths)
-
-        ref_state = self.env.motion_lib.get_motion_state(flat_ids, flat_times)
-
+        ref_state = motion_lib.get_motion_state(flat_ids, flat_times)
+        
         return ref_state
+    
+    def _create_dr_motion_lib(self):
+        """创建 DR action 模式的 MotionLib 实例"""
+        # 获取 motion_file 参数
+        motion_file = getattr(self.env.config, 'motion_file', None) or getattr(self.env.config.motion_lib, 'motion_file', None)
+        if motion_file is None:
+            raise ValueError("无法获取 motion_file 参数")
+        
+        # 构建新的路径
+        name_without_ext = os.path.splitext(os.path.basename(motion_file))[0]
+        new_motion_file = f"data/motions/{name_without_ext}.npy"
+        
+
+        
+        # 获取配置参数
+        config = self.env.config.motion_lib
+        kwargs = {
+            'motion_file': new_motion_file,
+            'robot_config': self.env.simulator.robot_config,
+            'key_body_ids': self.env.key_body_ids,
+            'device': self.env.device,
+            'ref_height_adjust': getattr(config, 'ref_height_adjust', 0.),
+            'target_frame_rate': getattr(config, 'target_frame_rate', 30),
+            'fix_motion_heights': getattr(config, 'fix_motion_heights', True),
+        }
+        
+        # 根据配置选择 MotionLib 类型
+        if hasattr(config, '_target_') and 'H1_MotionLib' in config._target_:
+            return H1_MotionLib(**kwargs)
+        else:
+            return MotionLib(**kwargs)
 
     def build_target_poses(
         self,
@@ -144,21 +193,29 @@ class MimicObs(BaseComponent):
             * self.env.dt
         )
 
-        raw_future_times = self.env.motion_manager.motion_times[env_ids].unsqueeze(
-            -1
-        ) + time_offsets.unsqueeze(0)
-        motion_ids = (
-            self.env.motion_manager.motion_ids[env_ids]
-            .unsqueeze(-1)
-            .tile([1, num_future_steps])
-        )
-        flat_ids = motion_ids.view(-1)
+        if Config.use_delta and not Config.freeze_delta:
+            # DR action mode: 使用共享的时间系统
+            motion_ids = torch.zeros(num_envs, num_future_steps, dtype=torch.long, device=self.env.device)
+            motion_lib = self._dr_motion_lib
+        else:
+            # Normal mode: 使用原有的 motion_ids
+            motion_ids = (
+                self.env.motion_manager.motion_ids[env_ids]
+                .unsqueeze(-1)
+                .tile([1, num_future_steps])
+            )
+            motion_lib = self.env.motion_lib
+        
+        # 统一的时间计算逻辑，与奖励计算保持一致
+        raw_future_times = self.env.motion_manager.motion_times[env_ids].unsqueeze(-1) + time_offsets.unsqueeze(0)
+        current_times = self.env.motion_manager.motion_times[env_ids]
 
-        lengths = self.env.motion_lib.get_motion_length(flat_ids)
+        flat_ids = motion_ids.view(-1)
+        lengths = motion_lib.get_motion_length(flat_ids)
 
         times = torch.minimum(raw_future_times.view(-1), lengths).view(
             num_envs, num_future_steps, 1
-        ) - self.env.motion_manager.motion_times[env_ids].view(num_envs, 1, 1)
+        ) - current_times.view(num_envs, 1, 1)
 
         obs = torch.cat([target_pose_obs, times], dim=-1).view(num_envs, -1)
 

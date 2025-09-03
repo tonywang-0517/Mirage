@@ -97,4 +97,7 @@ def main(override_config: OmegaConf):
 if __name__ == "__main__":
     main()
 
+#python mirage/target_domain_data_collect.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=genesis ++headless=false +checkpoint=results/g1_walk_DR_action/last.ckpt ++motion_file=data/motions/g1_walk.npy ++num_envs=1 +terrain=flat
+#python mirage/eval_agent.py +base=[fabric,structure] +exp=deepmimic_mlp +robot=g1 +simulator=isaaclab +checkpoint=null +training_max_steps=1 +motion_file=data/collected_motions/g1_walk.npy env.config.sync_motion=True ref_respawn_offset=0 +headless=False num_envs=1  +experiment_name=debug +terrain=flat
+
 

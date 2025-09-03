@@ -1,6 +1,6 @@
 # @package _global_
 
-num_envs: 4096
+num_envs: 512
 agent:
   _target_: mirage.agents.ppo.agent.PPO
   _recursive_: False
@@ -12,8 +12,8 @@ agent:
       config: ???  # Config to be filled by the module-specific configs
     # PPO parameters
     num_steps: 32
-    tau: 0.95
-    gamma: 0.99
+    tau: 0.0
+    gamma: 0.0
     e_clip: 0.2
     clip_critic_loss: True
     gradient_clip_val: 0
@@ -23,7 +23,7 @@ agent:
     normalize_values: True
     normalized_val_clamp_value: 5
     normalize_advantage: True
-    batch_size: 16384
+    batch_size: 1024
     task_reward_w: 1.0
     num_mini_epochs: 1
     max_eval_steps: null

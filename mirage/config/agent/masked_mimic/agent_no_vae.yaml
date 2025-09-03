@@ -54,8 +54,8 @@ agent:
           _target_: torch.optim.Adam
           lr: 2e-5
     # PPO parameters
-    gamma: 0.99
-    tau: 0.95
+    gamma: 0.0
+    tau: 0.0
     e_clip: 0.2
     normalize_values: false
     normalize_advantage: false

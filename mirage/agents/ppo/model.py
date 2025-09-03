@@ -2,6 +2,7 @@ import torch
 from torch import distributions, nn
 from hydra.utils import instantiate
 from mirage.agents.common.mlp import MultiHeadedMLP
+from mirage.global_config import Config
 
 
 class PPOActor(nn.Module):
@@ -14,8 +15,8 @@ class PPOActor(nn.Module):
         )
         self.mu: MultiHeadedMLP = instantiate(self.config.mu_model, num_out=num_out)
 
-    def forward(self, input_dict, use_delta=False):
-        mu = self.mu(input_dict, use_delta)
+    def forward(self, input_dict):
+        mu = self.mu(input_dict)
         mu = torch.tanh(mu)
         std = torch.exp(self.logstd)
         dist = distributions.Normal(mu, std)
@@ -38,7 +39,13 @@ class PPOModel(nn.Module):
     def get_action_and_value(self, input_dict: dict):
         dist = self._actor(input_dict)
         action = dist.sample()
-        value = self._critic(input_dict).flatten()
+        
+        # DR Action模式：使用零值，因为单步强化学习不需要价值函数
+        if Config.use_delta and not Config.freeze_delta:
+            batch_size = action.shape[0]
+            value = torch.zeros(batch_size, device=action.device)
+        else:
+            value = self._critic(input_dict).flatten()
 
         logstd = self._actor.logstd
         std = torch.exp(logstd)
@@ -46,8 +53,8 @@ class PPOModel(nn.Module):
         neglogp = self.neglogp(action, dist.mean, std, logstd)
         return action, neglogp, value.flatten()
 
-    def act(self, input_dict: dict, mean: bool = True, use_delta = False) -> torch.Tensor:
-        dist = self._actor(input_dict, use_delta = use_delta)
+    def act(self, input_dict: dict, mean: bool = True) -> torch.Tensor:
+        dist = self._actor(input_dict)
         if mean:
             return dist.mean
         return dist.sample()

@@ -373,7 +373,7 @@ class BaseEnv:
 
         return new_states
 
-    def reset(self, env_ids=None, motion_ids=None, motion_times=None):
+    def reset(self, env_ids=None, motion_ids=None, motion_times=None, randomize_position=True):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
         if len(env_ids) > 0:
@@ -392,7 +392,7 @@ class BaseEnv:
                 reset_ref_motion_times = []
             elif self.state_init == self.StateInit.Data:
                 new_states, motion_ids, motion_times = self.reset_ref_state_init(
-                    env_ids, motion_ids=motion_ids, motion_times=motion_times
+                    env_ids, motion_ids=motion_ids, motion_times=motion_times, randomize_position=randomize_position
                 )
                 reset_default_env_ids = []
                 reset_ref_env_ids = env_ids
@@ -432,12 +432,14 @@ class BaseEnv:
         env_ids,
         motion_ids: Optional[Tensor] = None,
         motion_times: Optional[Tensor] = None,
+        randomize_position: bool = True,
     ):
         assert not (
             motion_ids is None and motion_times is not None
         ), "Motion times are set, but no corresponding motion ids provided."
         if motion_ids is not None:
-            motion_times = self.motion_lib.sample_time(motion_ids)
+            if motion_times is None:
+                motion_times = self.motion_lib.sample_time(motion_ids)
             self.motion_manager.motion_ids[env_ids] = motion_ids
             self.motion_manager.motion_times[env_ids] = motion_times
 
@@ -454,19 +456,20 @@ class BaseEnv:
 
         # Ignore root offset from the data
         ref_state.root_pos[:, :2] = 0
-        # Sample offset and fix spawn height
-        ref_state.root_pos[:, :3] += self.get_envs_respawn_position(
-            env_ids,
-            rigid_body_pos=ref_state.rigid_body_pos,
-            offset=root_offset,
-            requires_scene=requires_scene,
-        )
 
-        # Transfer entire body to the proper coordinates
-        ref_state.rigid_body_pos[:, :, :3] -= (
-            ref_state.rigid_body_pos[:, 0, :3].unsqueeze(1).clone()
-        )
-        ref_state.rigid_body_pos[:, :, :3] += ref_state.root_pos.unsqueeze(1)
+        if randomize_position:
+            # Sample offset and fix spawn height
+            ref_state.root_pos[:, :3] += self.get_envs_respawn_position(
+                env_ids,
+                rigid_body_pos=ref_state.rigid_body_pos,
+                offset=root_offset,
+                requires_scene=requires_scene,
+            )
+            # Transfer entire body to the proper coordinates
+            ref_state.rigid_body_pos[:, :, :3] -= (
+                ref_state.rigid_body_pos[:, 0, :3].unsqueeze(1).clone()
+            )
+            ref_state.rigid_body_pos[:, :, :3] += ref_state.root_pos.unsqueeze(1)
 
         return ref_state, motion_ids, motion_times
 

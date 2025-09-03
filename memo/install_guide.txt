@@ -77,9 +77,30 @@ python mirage/train_agent.py +exp=full_body_tracker/transformer +robot=g1 +simul
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=False +checkpoint=results/full_body_tracker/last.ckpt
 eval walk
-python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab +motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker  ++headless=False +checkpoint=results/full_body_tracker_g1/last.ckpt ++num_envs=1
+python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=g1 +simulator=isaaclab +motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker  ++headless=False +checkpoint=results/full_body_tracker_g1_easy/last.ckpt ++num_envs=1
 
 
 python mirage/eval_agent.py +exp=full_body_tracker/transformer +robot=smpl +simulator=isaaclab  +experiment_name=full_body_tracker ++headless=false +checkpoint=results/full_body_tracker/last.ckpt ++num_envs=1
 
 tmux new -s mirage
+
+####################
+DR - phase1:
+close DR
+set  "use_delta": False, "freeze_delta": False
+python mirage/target_domain_data_collect.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=genesis +motion_file=data/motions/g1_walk.npy +experiment_name=g1_walk_DR_action ++headless=False ++num_envs=1 +checkpoint=results/g1_walk_DR_action/last.ckpt
+验证保存的motion:
+python mirage/eval_agent.py +base=[fabric,structure] +exp=deepmimic_mlp +robot=g1 +simulator=isaaclab +checkpoint=null +training_max_steps=1 +motion_file=data/collected_motions/g1_walk.npy env.config.sync_motion=True ref_respawn_offset=0 +headless=False num_envs=1  +experiment_name=debug +terrain=flat
+
+DR - phase2:
+close DR
+set "use_delta": True, "freeze_delta": False
+mimic_early_termination_thresh_on_flat=0.1
+python mirage/train_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab motion_file=data/collected_motions/g1_walk.npy +experiment_name=g1_walk_train_Delta ++headless=True
+cp last.ckpt
+
+DR - phase3:
+open DR
+set "use_delta": True, "freeze_delta": True
+mimic_early_termination_thresh_on_flat=0.35
+python mirage/train_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab motion_file=data/motions/g1_walk.npy +experiment_name=g1_walk_train_Delta ++headless=True

@@ -4,8 +4,9 @@ import torch
 from torch import nn
 import numpy as np
 
+from mirage.global_config import Config
 from mirage.utils.model_utils import get_activation_func
-
+from contextlib import nullcontext
 from hydra.utils import instantiate
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
@@ -184,10 +185,15 @@ class Transformer(nn.Module):
 
         return output
 
-    def forward(self, input_dict, use_delta=False):
-        features = self.get_extracted_features(input_dict)
-        actions = self.output_model(features)
-        if use_delta:
-            actions = actions + self.delta_model(features, actions)
+    def forward(self, input_dict, use_delta: bool = Config.use_delta, freeze_delta: bool = Config.freeze_delta):
+        with torch.no_grad() if use_delta else nullcontext():
+            features = self.get_extracted_features(input_dict)
+        if not use_delta:
+            return self.output_model(features)
 
-        return actions
+        with nullcontext() if freeze_delta else torch.no_grad():
+            actions = self.output_model(features)
+        with torch.no_grad() if freeze_delta else nullcontext():
+            delta = self.delta_model(actions)
+
+        return actions + delta if freeze_delta else actions - delta

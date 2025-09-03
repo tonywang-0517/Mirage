@@ -18,8 +18,8 @@ agent:
                 transformer_token_size: ${.latent_dim}
                 latent_dim: 512
                 ff_size: 1024
-                num_layers: 4
-                num_heads: 4
+                num_layers: 6
+                num_heads: 8
                 dropout: 0
 
                 activation: relu
@@ -44,7 +44,7 @@ agent:
                           activation: relu
                           use_layer_norm: false
                   # Add historical_self_obs_with_actions as an additional input (if enabled)
-                  historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
+                  # historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
                 output_model:
                   _target_: mirage.agents.common.mlp.MLP
                   _recursive_: False
@@ -69,16 +69,18 @@ agent:
                   action_in: ${robot.number_of_actions}
                   config:
                     layers:
-                      - units: 1024
+                      - units: 128
                         activation: relu
                         use_layer_norm: false
-                      - units: 1024
+                      - units: 256
                         activation: relu
                         use_layer_norm: false
-                      - units: 1024
+                      - units: 256
                         activation: relu
                         use_layer_norm: false
-
+                      - units: 128
+                        activation: relu
+                        use_layer_norm: false
         actor_optimizer:
           _target_: torch.optim.Adam
           lr: 2e-5

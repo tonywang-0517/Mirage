@@ -880,6 +880,3 @@ class IsaacLabSimulator(Simulator):
                 orientations=markers_state_item.orientation.view(-1, 4),
                 scales=marker_dict.scale,
             )
-
-#python mirage/eval_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab  ++headless=false +checkpoint=results/full_body_tracker_g1_noDR/last.ckpt ++num_envs=1
-#python mirage/train_agent.py +exp=full_body_tracker/transformer_flat_terrain +robot=g1 +simulator=isaaclab motion_file=data/motions/g1_walk.npy +experiment_name=full_body_tracker_g1_easy ++headless=True

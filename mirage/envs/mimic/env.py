@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Optional
 
 import torch
@@ -14,9 +15,13 @@ from mirage.envs.base_env.env import BaseEnv
 from mirage.envs.mimic.components.mimic_obs import MimicObs
 from mirage.envs.mimic.components.mimic_motion_manager import MimicMotionManager
 from mirage.envs.mimic.components.masked_mimic_obs import MaskedMimicObs
+from mirage.global_config import Config
 
 
 class Mimic(BaseEnv):
+    def _is_dr_action_mode(self):
+        """检查是否为 DR action 模式"""
+        return Config.use_delta and not Config.freeze_delta
     def __init__(self, config, device: torch.device, *args, **kwargs):
         super().__init__(config, device, *args, **kwargs)
         # Tracks the internal mimic metrics.
@@ -35,6 +40,12 @@ class Mimic(BaseEnv):
         self.respawned_on_flat = torch.zeros(
             self.num_envs, dtype=torch.bool, device=self.device
         )
+        
+        # DR action mode: 创建 collected_data motion lib 用于蓝色 marker
+        self._dr_collected_motion_lib = None
+        self._dr_collected_motion_file = None
+        if self._is_dr_action_mode():
+            self._dr_collected_motion_lib = self._create_dr_collected_motion_lib()
         
     def create_motion_manager(self):
         self.motion_manager = MimicMotionManager(self.config.motion_manager, self)
@@ -84,7 +95,86 @@ class Mimic(BaseEnv):
             )
             visualization_markers["future_body_markers"] = future_body_markers_cfg
         
+        # DR action mode: 添加蓝色 marker 来显示 collected_data 轨迹
+        if self._is_dr_action_mode():
+            dr_body_markers = []
+            for body_name in body_names:
+                if (
+                    self.config.robot.mimic_small_marker_bodies is not None
+                    and body_name in self.config.robot.mimic_small_marker_bodies
+                ):
+                    dr_body_markers.append(MarkerConfig(size="small"))
+                else:
+                    dr_body_markers.append(MarkerConfig(size="regular"))
+            
+            dr_body_markers_cfg = VisualizationMarker(
+                type="sphere",
+                color=(0.0, 0.0, 1.0),  # 蓝色
+                markers=dr_body_markers
+            )
+            visualization_markers["dr_body_markers"] = dr_body_markers_cfg
+        
         return visualization_markers
+    
+    def _create_dr_collected_motion_lib(self):
+        """创建 DR action 模式的 collected_data MotionLib 实例"""
+        import os
+        from mirage.utils.motion_lib import MotionLib
+        from mirage.utils.motion_lib_h1 import H1_MotionLib
+        
+        # 获取 motion_file 参数
+        motion_file = getattr(self.config, 'motion_file', None) or getattr(self.config.motion_lib, 'motion_file', None)
+        if motion_file is None:
+            return None
+        
+        # 构建 collected_data 路径
+        name_without_ext = os.path.splitext(os.path.basename(motion_file))[0]
+        collected_motion_file = f"data/collected_motions/{name_without_ext}.npy"
+        
+        # 检查文件是否存在
+        if not os.path.exists(collected_motion_file):
+            return None
+        
+        # 记录文件路径
+        self._dr_collected_motion_file = collected_motion_file
+        
+        # 获取配置参数
+        config = self.config.motion_lib
+        kwargs = {
+            'motion_file': collected_motion_file,
+            'robot_config': self.simulator.robot_config,
+            'key_body_ids': self.key_body_ids,
+            'device': self.device,
+            'ref_height_adjust': getattr(config, 'ref_height_adjust', 0.),
+            'target_frame_rate': getattr(config, 'target_frame_rate', 30),
+            'fix_motion_heights': getattr(config, 'fix_motion_heights', True),
+        }
+        
+        # 根据配置选择 MotionLib 类型
+        if hasattr(config, '_target_') and 'H1_MotionLib' in config._target_:
+            return H1_MotionLib(**kwargs)
+        else:
+            return MotionLib(**kwargs)
+    
+    def _check_and_reload_dr_motion_lib(self):
+        """检查并重新加载 DR motion lib（如果文件有更新）"""
+        if self._dr_collected_motion_file is None:
+            return
+        
+        # 检查文件是否存在
+        if not os.path.exists(self._dr_collected_motion_file):
+            return
+        
+        # 检查文件修改时间
+        current_mtime = os.path.getmtime(self._dr_collected_motion_file)
+        if not hasattr(self, '_dr_collected_motion_mtime'):
+            self._dr_collected_motion_mtime = current_mtime
+            return
+        
+        # 如果文件有更新，重新加载
+        if current_mtime > self._dr_collected_motion_mtime:
+            self._dr_collected_motion_lib = self._create_dr_collected_motion_lib()
+            self._dr_collected_motion_mtime = current_mtime
         
     def get_markers_state(self):
         if self.config.headless:
@@ -92,7 +182,7 @@ class Mimic(BaseEnv):
 
         markers_state = super().get_markers_state()
         
-        # Update mimic markers
+        # Update mimic markers (红色 marker)
         ref_state = self.motion_lib.get_motion_state(
             self.motion_manager.motion_ids, self.motion_manager.motion_times
         )
@@ -141,6 +231,8 @@ class Mimic(BaseEnv):
             translation=target_pos,
             orientation=torch.zeros(self.num_envs, target_pos.shape[1], 4, device=self.device),
         )
+        
+
 
         # Inbetweening markers
         if self.config.masked_mimic.enabled:
@@ -183,6 +275,48 @@ class Mimic(BaseEnv):
                 translation=target_pos,
                 orientation=torch.zeros(self.num_envs, target_pos.shape[1], 4, device=self.device),
             )
+        
+        # DR action mode: 更新蓝色 marker 状态
+        if self._is_dr_action_mode():
+            
+            # 检查并重新加载 motion lib（如果文件有更新）
+            self._check_and_reload_dr_motion_lib()
+            
+            if self._dr_collected_motion_lib is not None:
+                # 使用 collected_data motion lib 获取状态
+                # 确保使用正确的时间，避免时间不同步问题
+                current_time = self.motion_manager.motion_times.clone()
+                
+                # 检查收集数据的时间范围，确保不超出边界
+                max_time = self._dr_collected_motion_lib.get_motion_length(self.motion_manager.motion_ids)
+                current_time = torch.clamp(current_time, torch.tensor(0.0, device=current_time.device), max_time - 0.001)  # 避免边界问题
+                
+
+                
+                dr_ref_state = self._dr_collected_motion_lib.get_motion_state(
+                    self.motion_manager.motion_ids, current_time
+                )
+                
+                # 蓝色 marker 应该显示收集数据的真实轨迹，不需要强制对齐
+                # 只需要应用与红色 marker 相同的坐标系统调整
+                dr_target_pos = dr_ref_state.rigid_body_pos.clone()
+                
+                # 应用相同的 respawn_offset 调整
+                dr_target_pos += self.respawn_offset_relative_to_data.clone().view(
+                    self.num_envs, 1, 3
+                )
+                
+                # 应用相同的地形高度调整
+                dr_target_pos[..., -1:] += self.terrain.get_ground_heights(
+                    dr_target_pos[:, 0]
+                ).view(self.num_envs, 1, 1)
+                
+                dr_target_pos = dr_target_pos.view(self.num_envs, -1, 3)
+                markers_state["dr_body_markers"] = MarkerState(
+                    translation=dr_target_pos,
+                    orientation=torch.zeros(self.num_envs, dr_target_pos.shape[1], 4, device=self.device),
+                )
+
         return markers_state
 
     def get_obs(self):
@@ -329,6 +463,8 @@ class Mimic(BaseEnv):
         kb = key bodies
         dv = dof (degrees of freedom velocity)
         """
+
+        
         ref_state = self.motion_lib.get_motion_state(
             self.motion_manager.motion_ids, self.motion_manager.motion_times
         )
@@ -461,11 +597,19 @@ class Mimic(BaseEnv):
 
         for rew_name, rew in rew_dict.items():
             self.log_dict[f"raw/{rew_name}_mean"] = rew.mean()
-            self.log_dict[f"raw/{rew_name}_std"] = rew.std()
+            # 只有当样本数量大于1时才计算标准差
+            if rew.numel() > 1:
+                self.log_dict[f"raw/{rew_name}_std"] = rew.std()
+            else:
+                self.log_dict[f"raw/{rew_name}_std"] = torch.tensor(0.0, device=rew.device)
 
         for rew_name, rew in scaled_rewards.items():
             self.log_dict[f"scaled/{rew_name}_mean"] = rew.mean()
-            self.log_dict[f"scaled/{rew_name}_std"] = rew.std()
+            # 只有当样本数量大于1时才计算标准差
+            if rew.numel() > 1:
+                self.log_dict[f"scaled/{rew_name}_std"] = rew.std()
+            else:
+                self.log_dict[f"scaled/{rew_name}_std"] = torch.tensor(0.0, device=rew.device)
 
         other_log_terms = {
             "tracking_rew": tracking_rew,
@@ -483,7 +627,11 @@ class Mimic(BaseEnv):
 
         for rew_name, rew in other_log_terms.items():
             self.log_dict[f"mimic_other/{rew_name}_mean"] = rew.mean()
-            self.log_dict[f"mimic_other/{rew_name}_std"] = rew.std()
+            # 只有当样本数量大于1时才计算标准差
+            if rew.numel() > 1:
+                self.log_dict[f"mimic_other/{rew_name}_std"] = rew.std()
+            else:
+                self.log_dict[f"mimic_other/{rew_name}_std"] = torch.tensor(0.0, device=rew.device)
 
         self.mimic_info_dict.update(rew_dict)
         self.mimic_info_dict.update(other_log_terms)
@@ -516,13 +664,13 @@ class Mimic(BaseEnv):
         super().user_reset()
         self.motion_manager.motion_times[:] = 1e6
 
-    def reset(self, env_ids=None, motion_ids=None, motion_times=None):
+    def reset(self, env_ids=None, motion_ids=None, motion_times=None, randomize_position=True):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
         if len(env_ids) > 0:
             if self.config.masked_mimic.enabled:
                 self.masked_mimic_obs_cb.reset_track(env_ids)
-        return super().reset(env_ids, motion_ids, motion_times)
+        return super().reset(env_ids, motion_ids, motion_times, randomize_position)
 
     def residual_actions_to_actual(
         self,

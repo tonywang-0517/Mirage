@@ -60,3 +60,4 @@ termcolor>=1.1.0
 # Testing
 pytest
 genesis-world==0.2.1
+moviepy==1.0.3

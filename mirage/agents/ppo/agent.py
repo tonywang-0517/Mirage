@@ -25,6 +25,7 @@ from mirage.utils.running_mean_std import RunningMeanStd
 from rich.progress import track
 from tqdm import tqdm
 from mirage.agents.ppo.utils import discount_values, bounds_loss
+from mirage.global_config import Config
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ class PPO:
         self.num_mini_epochs: int = config.num_mini_epochs
         self.task_reward_w: float = config.task_reward_w
         self._should_stop: bool = False
+        
+        # DR Action模式：覆盖为单步强化学习参数
+        if Config.use_delta and not Config.freeze_delta:
+            print("DR Action模式：启用单步强化学习 (gamma=0.0, tau=0.0)")
+            self.gamma = 0.0
+            self.tau = 0.0
 
         if self.config.normalize_values:
             self.running_val_norm = RunningMeanStd(
@@ -85,6 +92,9 @@ class PPO:
     def setup(self):
         model: PPOModel = instantiate(self.config.model)
         model.apply(weight_init)
+        
+        # Apply weight freezing based on global config
+        self._apply_weight_freezing(model)
         actor_optimizer = instantiate(
             self.config.model.config.actor_optimizer,
             params=list(model._actor.parameters()),
@@ -113,6 +123,53 @@ class PPO:
                 env_state_dict = torch.load(env_checkpoint, map_location=self.device, weights_only=False)
                 self.env.load_state_dict(env_state_dict)
 
+    def _apply_weight_freezing(self, model):
+        """Apply weight freezing based on global config"""
+        
+        print("\n" + "="*50)
+        print("WEIGHT FREEZING SUMMARY")
+        print("="*50)
+        print(f"Config.freeze_delta: {getattr(Config, 'freeze_delta', 'NOT_FOUND')}")
+        print(f"Config.use_delta: {getattr(Config, 'use_delta', 'NOT_FOUND')}")
+        
+        # Count parameters by type
+        all_params = list(model.named_parameters())
+        delta_params = [(name, param) for name, param in all_params if 'delta_model' in name]
+        actor_params = [(name, param) for name, param in all_params if '_actor.mu' in name and 'delta_model' not in name]
+        critic_params = [(name, param) for name, param in all_params if '_critic' in name]
+        
+        print(f"\nParameter counts:")
+        print(f"  Delta model params: {len(delta_params)}")
+        print(f"  Actor params (non-delta): {len(actor_params)}")
+        print(f"  Critic params: {len(critic_params)}")
+        print(f"  Total params: {len(all_params)}")
+        
+        if Config.freeze_delta:
+            # Freeze delta_model weights only
+            frozen_count = 0
+            trainable_count = 0
+            for name, param in model.named_parameters():
+                if 'delta_model' in name:
+                    param.requires_grad = False
+                    frozen_count += 1
+                else:
+                    trainable_count += 1
+            print(f"Freeze policy: delta-only | frozen={frozen_count}, trainable={trainable_count}")
+            
+        elif Config.use_delta:
+            # Freeze all weights except delta_model and critic
+            frozen_count = 0
+            trainable_count = 0
+            for name, param in model.named_parameters():
+                if 'delta_model' not in name and '_critic' not in name:
+                    param.requires_grad = False
+                    frozen_count += 1
+                else:
+                    trainable_count += 1
+            print(f"Freeze policy: all-except(delta,critic) | frozen={frozen_count}, trainable={trainable_count}")
+        
+        print("="*50 + "\n")
+
     def load_parameters(self, state_dict):
         self.current_epoch = state_dict["epoch"]
 
@@ -123,7 +180,16 @@ class PPO:
 
         self.best_evaluated_score = state_dict.get("best_evaluated_score", None)
 
-        self.model.load_state_dict(state_dict["model"], strict=False)
+        # Load model state dict with better error handling for non-strict loading
+        try:
+            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict["model"], strict=False)
+            if missing_keys:
+                print(f"Warning: Missing keys when loading checkpoint: {missing_keys}")
+            if unexpected_keys:
+                print(f"Warning: Unexpected keys in checkpoint: {unexpected_keys}")
+        except Exception as e:
+            print(f"Warning: Error loading model state dict: {e}")
+            print("Continuing with current model initialization...")
         try:
             self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
         except ValueError as e:
@@ -136,6 +202,9 @@ class PPO:
 
         self.episode_reward_meter.load_state_dict(state_dict["episode_reward_meter"])
         self.episode_length_meter.load_state_dict(state_dict["episode_length_meter"])
+        
+        # Re-apply weight freezing after loading checkpoint
+        self._apply_weight_freezing(self.model)
 
     # -----------------------------
     # Model Saving and State Dict
@@ -441,16 +510,21 @@ class PPO:
             self.actor_optimizer.step()
 
             # Update critic (use autocast to benefit from mixed precision on GPU)
-            with self.fabric.autocast():
-                critic_loss, critic_loss_dict = self.critic_step(batch_dict)
-            iter_log_dict.update(critic_loss_dict)
-            self.critic_optimizer.zero_grad(set_to_none=True)
-            self.fabric.backward(critic_loss)
-            critic_grad_clip_dict = self.handle_model_grad_clipping(
-                self.model._critic, self.critic_optimizer, "critic"
-            )
-            iter_log_dict.update(critic_grad_clip_dict)
-            self.critic_optimizer.step()
+            # DR Action模式下跳过critic训练，因为单步强化学习中critic作用有限
+            if not (Config.use_delta and not Config.freeze_delta):
+                with self.fabric.autocast():
+                    critic_loss, critic_loss_dict = self.critic_step(batch_dict)
+                iter_log_dict.update(critic_loss_dict)
+                self.critic_optimizer.zero_grad(set_to_none=True)
+                self.fabric.backward(critic_loss)
+                critic_grad_clip_dict = self.handle_model_grad_clipping(
+                    self.model._critic, self.critic_optimizer, "critic"
+                )
+                iter_log_dict.update(critic_grad_clip_dict)
+                self.critic_optimizer.step()
+            else:
+                # DR Action模式：跳过critic训练
+                iter_log_dict.update({"losses/critic_loss": torch.tensor(0.0, device=self.device)})
 
             # Extra optimization steps if needed.
             extra_opt_steps_dict = self.extra_optimization_steps(batch_dict, batch_idx)
@@ -790,14 +864,22 @@ class PPO:
 
     @torch.no_grad()
     def target_domain_data_collection(self):
-        """收集64个env并行推理120帧的状态数据，保存为motion文件"""
+        """收集与原始motion长度一致的真实机器人轨迹数据"""
         self.eval()
         
-        # 设置录制参数
-        num_frames = 120
+        # 加载原始motion文件获取长度信息
+        motion_file = self.env.config.motion_lib.motion_file
+        original_motion = torch.load(motion_file)
+        original_fps = original_motion["fps"]
+        original_frames = original_motion["dof_pos"].shape[0]
+        original_duration = original_frames / original_fps
+        
+        # 计算需要收集的帧数：原始时长 * 仿真器fps
+        simulator_fps = 1.0 / self.env.simulator.dt
+        num_frames = int(original_duration * simulator_fps)
         num_envs = self.num_envs
         
-        print(f"开始收集 {num_envs} 个env的 {num_frames} 帧motion数据...")
+        print(f"开始收集 {num_envs} 个env的 {num_frames} 帧motion数据 (原始时长: {original_duration:.1f}s)")
         
         # 初始化录制器
         from mirage.utils.motion_recorder import BatchMotionRecorder
@@ -807,35 +889,31 @@ class PPO:
             num_frames=num_frames
         )
         
-        # 重置环境
-        self.env.reset()
+        # 重置环境，确保motion_time从0开始
+        motion_ids = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        motion_times = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         
-        # 收集120帧数据
-        for frame in range(num_frames):
-            # 计算观察
+        # 在 DR action 模式下禁用随机化
+        randomize_position = not (Config.use_delta and not Config.freeze_delta)
+        self.env.reset(motion_ids=motion_ids, motion_times=motion_times, randomize_position=randomize_position)
+        
+        # 收集数据
+        for frame in tqdm(range(num_frames), desc="收集motion数据", unit="帧"):
             self.env.compute_observations()
             obs = self.env.get_obs()
-            
-            # 模型推理
             actions = self.model.act(obs)
-            
-            # 环境步进
             self.env_step(actions)
-            # 记录当前帧
+            
             if not recorder.record_frame():
                 print(f"录制在第 {frame} 帧停止")
                 break
-            print(f"收集进度: {frame+1}/{num_frames}")
         
         # 保存motion数据
-        # 从motion_file路径中提取文件名
-        motion_file = self.env.config.motion_lib.motion_file
-        motion_name = Path(motion_file).stem  # 获取不带扩展名的文件名
-        output_path = Path.cwd() / "data" / "collected_motions" / f"{motion_name}.pt"
+        motion_name = Path(motion_file).stem
+        output_path = Path.cwd() / "data" / "collected_motions" / f"{motion_name}.npy"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 保存为pt格式（包含所有env的数据）
-        success = recorder.save_motions_as_pt_format(str(output_path))
+        success = recorder.save_motions(str(output_path))
         if success:
             print(f"Motion数据收集完成，保存到: {output_path}")
         else:

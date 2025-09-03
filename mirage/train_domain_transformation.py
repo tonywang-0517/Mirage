@@ -91,7 +91,7 @@ def main(override_config: OmegaConf):
     agent.setup()
     agent.load(config.checkpoint)
 
-    agent.domain_transformation()
+    agent.domain_transformation_fit()
 
 
 if __name__ == "__main__":
