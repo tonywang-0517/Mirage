@@ -27,4 +27,4 @@ env:
       with_time: true
       num_future_steps: 4
 
-python mirage/train_agent.py +exp=masked_mimic/flat_terrain +robot=g1 +simulator=isaaclab  +experiment_name=masked_mimic_g1_walk motion_file=data/motions/g1_walk.npy  ++headless=true agent.config.expert_model_path=results/g1_walk_DR_action
+

@@ -1,6 +1,6 @@
 # @package _global_
 
-num_envs: 4096
+num_envs: 256
 agent:
   _target_: mirage.agents.masked_mimic.agent_no_vae.MaskedMimicNoVae
   _recursive_: False
@@ -54,8 +54,8 @@ agent:
           _target_: torch.optim.Adam
           lr: 2e-5
     # PPO parameters
-    gamma: 0.0
-    tau: 0.0
+    tau: 0.95
+    gamma: 0.99
     e_clip: 0.2
     normalize_values: false
     normalize_advantage: false
@@ -74,7 +74,7 @@ agent:
     num_steps: 32
     fail_on_bad_grads: False
     check_grad_mag: True
-    batch_size: 16384
+    batch_size: 512
     task_reward_w: 1.0
     num_mini_epochs: 6
     max_eval_steps: null
@@ -92,7 +92,8 @@ agent:
       masked_mimic_target_poses_masks: true
       motion_text_embeddings: false
       motion_text_embeddings_mask: false
-      historical_pose_obs: true
+      historical_pose_obs: false
+      historical_self_obs_with_actions: true
 
 eval_overrides:
   agent:

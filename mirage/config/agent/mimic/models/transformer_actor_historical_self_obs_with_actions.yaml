@@ -55,6 +55,24 @@ agent:
                   # Add historical_self_obs_with_actions as an additional input
                   historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
 
+        # Add historical_self_obs_with_actions to Encoder and Prior
+        # Note: Encoder and Prior use MultiHeadedMLP, so we need to add it to their input_models
+        encoder:
+          config:
+            trunk:
+              config:
+                input_models:
+                  # Add historical_self_obs_with_actions to Encoder
+                  historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
+        
+        prior:
+          config:
+            trunk:
+              config:
+                input_models:
+                  # Add historical_self_obs_with_actions to Prior
+                  historical_self_obs_with_actions: ${agent.config.modules.historical_self_obs_with_actions_model}
+
     extra_inputs:
       historical_self_obs_with_actions: true
 

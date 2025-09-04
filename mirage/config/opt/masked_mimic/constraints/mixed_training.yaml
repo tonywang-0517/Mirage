@@ -1,0 +1,25 @@
+# @package _global_
+
+# 混合训练配置
+# 结合近未来帧、远未来帧和文字embedding的混合训练
+
+env:
+  config:
+    masked_mimic:
+      masked_mimic_masking:
+        joint_masking:
+          # 继承g1_body的设置，保持keybody配置一致性
+          # 避免混合训练时的配置冲突
+          
+          # 混合时间遮盖策略
+          time_gap_mask_min_steps: 1
+          time_gap_mask_max_steps: 4
+          masked_mimic_time_gap_probability: 0.3  # 30%概率进行时间遮盖
+          masked_mimic_repeat_mask_probability: 0.8  # 80%概率重复遮盖模式
+          
+          # 当有long-term conditioning时，100%概率遮盖近未来帧
+          with_conditioning_max_gap_probability: 1.0  # 100%概率
+
+        # 混合信息源策略
+        target_pose_visible_prob: 0.6  # 60%概率看到far future
+        motion_text_embeddings_visible_prob: 0.4  # 40%概率看到文字embedding

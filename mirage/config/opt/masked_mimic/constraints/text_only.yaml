@@ -1,0 +1,19 @@
+# @package _global_
+
+# 只有文字embedding的配置
+# 没有远未来和近未来，完全依赖文字指导
+
+env:
+  config:
+    masked_mimic:
+      masked_mimic_masking:
+        joint_masking:
+          # 强制遮盖近未来帧，只保留文字指导
+          masked_mimic_time_gap_probability: 1  # 100%概率进行时间遮盖
+          masked_mimic_repeat_mask_probability: 1  # 100%概率重复遮盖模式
+          time_gap_mask_min_steps: 1000000  # 强制遮盖所有近未来帧
+          time_gap_mask_max_steps: 1000001
+
+        # 只显示文字embedding，不显示远未来帧
+        target_pose_visible_prob: 0  # 0%概率看到far future
+        motion_text_embeddings_visible_prob: 1  # 100%概率看到文字embedding

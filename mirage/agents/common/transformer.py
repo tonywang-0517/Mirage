@@ -188,6 +188,11 @@ class Transformer(nn.Module):
     def forward(self, input_dict, use_delta: bool = Config.use_delta, freeze_delta: bool = Config.freeze_delta):
         with torch.no_grad() if use_delta else nullcontext():
             features = self.get_extracted_features(input_dict)
+        
+        # If no output_model is configured, return features directly
+        if not hasattr(self, 'output_model'):
+            return features
+            
         if not use_delta:
             return self.output_model(features)
 

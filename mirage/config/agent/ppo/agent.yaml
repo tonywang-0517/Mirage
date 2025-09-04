@@ -12,8 +12,8 @@ agent:
       config: ???  # Config to be filled by the module-specific configs
     # PPO parameters
     num_steps: 32
-    tau: 0.0
-    gamma: 0.0
+    tau: 0.95
+    gamma: 0.99
     e_clip: 0.2
     clip_critic_loss: True
     gradient_clip_val: 0

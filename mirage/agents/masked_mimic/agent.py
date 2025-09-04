@@ -81,10 +81,25 @@ class MaskedMimic(PPO):
             )
             self.expert_model = self.fabric.setup(expert_model)
             self.expert_model.mark_forward_method("act")
+            
+            # Remove delta_model from expert_model before loading state dict
+            if hasattr(self.expert_model._actor.mu, 'delta_model'):
+                delattr(self.expert_model._actor.mu, 'delta_model')
+                print("Removed delta_model from expert_model")
 
             # loading should be done after fabric.setup to ensure the model is on the correct fabric.device
             pre_trained_expert = torch.load(checkpoint_path, map_location=self.fabric.device, weights_only=False)
-            self.expert_model.load_state_dict(pre_trained_expert["model"])
+            
+            # Load with strict=False to handle mismatched parameters
+            missing_keys, unexpected_keys = self.expert_model.load_state_dict(
+                pre_trained_expert["model"], strict=False
+            )
+            
+            # Log which parameters were loaded and which were skipped
+            if missing_keys:
+                print(f"Warning: Some parameters were not loaded (missing): {missing_keys}")
+            if unexpected_keys:
+                print(f"Warning: Some checkpoint parameters were not used: {unexpected_keys}")
             for param in self.expert_model.parameters():
                 param.requires_grad = False
             self.expert_model.eval()  # Just incase

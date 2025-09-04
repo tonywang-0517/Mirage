@@ -6,6 +6,8 @@ defaults:
 
   - /agent/masked_mimic/models_no_vae/encoder
   - /agent/masked_mimic/models_no_vae/text_conditioning
+  - /terrain/complex
+  - /agent/masked_mimic/models/terrain
   - /agent/mimic/options/global_tracking
   - /agent/mimic/options/early_termination_tracking_err
   - /agent/mimic/models/transformer_actor_historical_self_obs_with_actions
@@ -15,7 +17,7 @@ defaults:
   # 选择以下四种模式之一：
   
   # 1. 只训练远未来帧（类似no_constraint）
-  - /opt/masked_mimic/constraints/far_future_only
+  # - /opt/masked_mimic/constraints/far_future_only
   
   # 2. 只训练近未来帧，所有keybody可见
   # - /opt/masked_mimic/constraints/near_future_only
@@ -24,7 +26,7 @@ defaults:
   # - /opt/masked_mimic/constraints/text_only
   
   # 4. 混合训练（原来的g1_mocap_key_bodies）
-  # - /opt/masked_mimic/constraints/mixed_training
+  - /opt/masked_mimic/constraints/mixed_training
 
 env:
   config:

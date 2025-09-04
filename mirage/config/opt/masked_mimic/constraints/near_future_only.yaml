@@ -1,0 +1,20 @@
+# @package _global_
+
+# 只训练近未来帧的配置
+# 所有keybody的可见概率是1，不做任何遮盖
+
+env:
+  config:
+    masked_mimic:
+      masked_mimic_masking:
+        joint_masking:
+          # 不进行时间遮盖，近未来帧正常显示
+          masked_mimic_time_gap_probability: 0
+          masked_mimic_repeat_mask_probability: 1
+          with_conditioning_max_gap_probability: 1.0
+          time_gap_mask_min_steps: -2
+          time_gap_mask_max_steps: -1
+
+        # 不显示远未来帧和文字，只显示近未来帧
+        target_pose_visible_prob: 0  # 0%概率看到far future（完全遮盖远未来帧）
+        motion_text_embeddings_visible_prob: 0  # 0%概率看到文字embedding

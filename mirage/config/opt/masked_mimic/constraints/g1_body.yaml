@@ -1,0 +1,27 @@
+# @package _global_
+
+# 只训练近未来帧的配置
+# 所有keybody的可见概率是1，不做任何遮盖
+
+env:
+  config:
+    masked_mimic:
+      masked_mimic_masking:
+        joint_masking:
+          # 所有keybody完全暴露，不做任何遮盖
+          masked_mimic_fixed_conditioning:
+            # 5个关键body - 完全暴露（去掉头部）
+            - body_name: "pelvis"
+              constraint_state: 1  # 完全暴露
+            - body_name: "left_ankle_pitch_link"
+              constraint_state: 1  # 完全暴露
+            - body_name: "right_ankle_pitch_link"
+              constraint_state: 1  # 完全暴露
+            - body_name: "left_rubber_hand"
+              constraint_state: 1  # 完全暴露
+            - body_name: "right_rubber_hand"
+              constraint_state: 1  # 完全暴露
+
+          # 禁用随机body选择，确保总是使用fixed_conditioning的设置
+          force_max_conditioned_bodies_prob: 1
+          force_small_num_conditioned_bodies_prob: 0

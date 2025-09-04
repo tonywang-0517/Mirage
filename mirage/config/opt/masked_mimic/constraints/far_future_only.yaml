@@ -1,0 +1,23 @@
+# @package _global_
+
+# 只训练远未来帧的配置
+# 类似no_constraint，但使用g1的keybody设置
+
+env:
+  config:
+    masked_mimic:
+      masked_mimic_masking:
+        joint_masking:
+          # 强制遮盖所有近未来帧，只显示远未来帧
+          masked_mimic_time_gap_probability: 1
+          masked_mimic_repeat_mask_probability: 1
+          time_gap_mask_min_steps: 1000000  # 强制遮盖所有近未来帧
+          time_gap_mask_max_steps: 1000001
+          
+          # 继承g1_body的设置，保持keybody配置一致性
+          # 避免混合训练时的配置冲突
+        # 只显示远未来帧，不显示文字
+        target_pose_visible_prob: 1  # 100%概率看到far future
+        motion_text_embeddings_visible_prob: 0  # 0%概率看到文字embedding
+
+
